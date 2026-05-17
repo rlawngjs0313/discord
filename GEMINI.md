@@ -119,6 +119,7 @@ gcloud compute instances create-with-container INSTANCE_NAME \
 ### 🛠 Development Workflow
 
 #### Phase 1: Preparation (Setup)
+0. **버전 체크:** 세션 시작 시 GitHub Repository의 히스토리(태그 및 커밋 메시지)를 분석하여 현재 가장 최신 배포 버전을 확인하고 기록합니다.
 1. **이슈 생성:** 작업 성격에 맞는 템플릿(`✨--feat--기능-추가.md` 또는 `♻️--refactor--리팩토링.md`)으로 이슈 생성.
 2. **이슈 번호 확인:** 생성된 이슈 번호 추출 및 기억.
 3. **브랜치 생성:** `develop` 브랜치 베이스로 `Feat/#번호` 또는 `Refactor/#번호` 브랜치 생성.
