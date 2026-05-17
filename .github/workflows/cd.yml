@@ -51,21 +51,21 @@ jobs:
           key: ${{ secrets.GCE_SSH_SECRET_KEY }}
           script: |
             # GHCR 로그인
-            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo ${{ secrets.GITHUB_TOKEN }} | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
             # 기존 컨테이너 중지 및 제거
-            docker ps -q --filter "name=discord-bot" | xargs -r docker stop
-            docker ps -a -q --filter "name=discord-bot" | xargs -r docker rm
+            sudo docker ps -q --filter "name=discord-bot" | xargs -r sudo docker stop
+            sudo docker ps -a -q --filter "name=discord-bot" | xargs -r sudo docker rm
             
             # 최신 이미지 풀
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            sudo docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             
             # 새 컨테이너 실행
-            docker run -d \
+            sudo docker run -d \
               --name discord-bot \
               --restart always \
               -e DISCORD_TOKEN=${{ secrets.DISCORD_TOKEN }} \
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             
             # 사용하지 않는 이미지 정리
-            docker image prune -f
+            sudo docker image prune -f
