@@ -56,7 +56,7 @@ describe('Web Server API', () => {
   test('GET / should return server status', async () => {
     const response = await request(app).get('/');
     expect(response.statusCode).toBe(200);
-    expect(response.text).toBe('Discord Bot Server is running.');
+    expect(response.text).toContain('Discord Bot Server is');
   });
 
   test('GET /oauth/callback should return success message', async () => {

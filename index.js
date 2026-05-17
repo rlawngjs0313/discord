@@ -13,7 +13,8 @@ app.get('/oauth/callback', (req, res) => {
 
 // 기본 헬스체크 경로
 app.get('/', (req, res) => {
-    res.send('Discord Bot Server is running.');
+    const status = client.isReady() ? 'Online' : 'Starting';
+    res.send('Discord Bot Server is ' + status + '.');
 });
 
 // 클라이언트 생성 및 인텐트 설정
@@ -53,6 +54,9 @@ if (require.main === module) {
     // Express 서버 시작
     app.listen(PORT, () => {
         console.log(`Web server is running on port ${PORT}`);
+    }).on('error', (err) => {
+        console.error('Web server failed to start:', err);
+        process.exit(1);
     });
 
     client.login(process.env.DISCORD_TOKEN).catch(error => {
