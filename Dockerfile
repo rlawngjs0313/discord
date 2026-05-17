@@ -10,5 +10,8 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY . .
 
+# 포트 설정
+EXPOSE 8000
+
 # 봇 실행
 CMD ["npm", "start"]

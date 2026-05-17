@@ -1,4 +1,5 @@
-const { client, handleMessage } = require('../index.js');
+const request = require('supertest');
+const { client, handleMessage, app } = require('../index.js');
 
 describe('Discord Bot Basic Configuration', () => {
   test('Bot client should be initialized with correct intents', () => {
@@ -48,5 +49,19 @@ describe('Message Handler', () => {
     await handleMessage(mockMessage);
 
     expect(mockReply).not.toHaveBeenCalled();
+  });
+});
+
+describe('Web Server API', () => {
+  test('GET / should return server status', async () => {
+    const response = await request(app).get('/');
+    expect(response.statusCode).toBe(200);
+    expect(response.text).toBe('Discord Bot Server is running.');
+  });
+
+  test('GET /oauth/callback should return success message', async () => {
+    const response = await request(app).get('/oauth/callback');
+    expect(response.statusCode).toBe(200);
+    expect(response.text).toContain('봇 초대가 성공적으로 완료되었습니다');
   });
 });

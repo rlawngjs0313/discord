@@ -1,6 +1,6 @@
 # Project Overview: Discord Bot with GCP CI/CD
 
-This project is a simple Discord bot built with Node.js and `discord.js`. It features a fully automated CI/CD pipeline using GitHub Actions to deploy the bot as a containerized application to Google Cloud Run.
+This project is a simple Discord bot built with Node.js and `discord.js`. It features a fully automated CI/CD pipeline using GitHub Actions to deploy the bot as a containerized application to **Google Compute Engine (GCE)**.
 
 ## Technologies
 - **Runtime:** Node.js (v20+)
@@ -8,16 +8,31 @@ This project is a simple Discord bot built with Node.js and `discord.js`. It fea
 - **Containerization:** Docker
 - **CI/CD:** GitHub Actions
 - **Cloud Provider:** Google Cloud Platform (GCP)
-- **Hosting:** Google Cloud Run
+- **Hosting:** Google Compute Engine (GCE)
 
-## Architecture
-1.  **Discord Bot (`index.js`):** A basic bot that listens for "핑" (Ping) and replies with "퐁!" (Pong!). It uses `dotenv` for local environment variable management.
-2.  **Containerization (`Dockerfile`):** A multi-stage Docker build that optimizes the production image by separating the build phase from the runtime phase.
-3.  **CI/CD Workflow (`.github/workflows/ci-cd.yml`):**
-    - Triggers on pushes to `main` or `master`.
-    - Authenticates with GCP using Workload Identity Federation (WIF).
-    - Builds and pushes the Docker image to Artifact Registry.
-    - Deploys the image to Google Cloud Run, injecting the `DISCORD_TOKEN` from GitHub Secrets.
+## Git Branching Strategy
+We follow a modified Git Flow strategy:
+- **`main`:** Production-ready branch. Only merges from `develop` are allowed. Pushes to this branch trigger the **CD (Deploy)** pipeline.
+- **`develop`:** Integration branch for features. Stability is verified here. PRs to this branch trigger the **CI (Test)** pipeline.
+- **`Feat/#{issue-number}`:** Feature branches. Developers work here and merge into `develop` once complete.
+- **`Refactor/#{issue-number}`:** Refactoring branches.
+
+## CI/CD Workflow
+
+### 1. CI Pipeline (Test)
+- **Trigger:** Pull Request to `develop`.
+- **Action:**
+  - Installs dependencies.
+  - Runs automated tests using `jest`.
+- **Purpose:** Ensure new features don't break existing functionality and maintain code quality before integration.
+
+### 2. CD Pipeline (Deploy)
+- **Trigger:** Push to `main`.
+- **Action:**
+  - Authenticates with Google Cloud.
+  - Builds a Docker image and pushes it to Artifact Registry.
+  - Updates the GCE instance container with the new image.
+- **Purpose:** Automated deployment of stable, tested code to the production environment.
 
 ---
 
@@ -26,7 +41,7 @@ This project is a simple Discord bot built with Node.js and `discord.js`. It fea
 ### Prerequisites
 - Node.js installed locally.
 - A Discord Bot Token (from the Discord Developer Portal).
-- A `.env` file in the root directory (see [Local Setup](#local-setup)).
+- A GCP project with a GCE instance configured to run containers.
 
 ### Local Setup
 1.  Install dependencies:
@@ -55,7 +70,7 @@ docker run --env-file .env discord-bot
 
 ### Coding Style
 - Use **CommonJS** modules (`require`/`exports`).
-- Use **async/await** for asynchronous operations (as per `discord.js` best practices).
+- Use **async/await** for asynchronous operations.
 - Keep environment variables in `.env` and never commit them to the repository.
 
 ### CI/CD Requirements
@@ -64,6 +79,69 @@ For the GitHub Actions workflow to succeed, the following secrets must be config
 - `GCP_WIF_PROVIDER`: The full identifier of the Workload Identity Pool provider.
 - `GCP_WIF_SERVICE_ACCOUNT`: The email address of the GCP Service Account.
 - `DISCORD_TOKEN`: The Discord bot token.
+- `GCE_INSTANCE`: The name of the target GCE instance.
 
-### Testing
-- Currently, no tests are specified. To add tests, update the `test` script in `package.json` and add your test files.
+### GCE Instance Setup Hint
+The GCE instance should be created with the "Deploy a container image to this VM instance" option enabled.
+```bash
+gcloud compute instances create-with-container INSTANCE_NAME \
+    --container-image=gcr.io/google-containers/pause \
+    --zone=us-central1-a \
+    --scopes=https://www.googleapis.com/auth/cloud-platform
+```
+
+---
+
+## Gemini CLI Development Rules & Workflow
+
+### 🚨 Critical Safety Rules
+1. **Sensitive Info:** Always manage sensitive information (API keys, tokens) in `.env`. NEVER commit them.
+2. **Autonomous Development:** Gemini CLI performs all development tasks. User intervention is not expected.
+3. **Double-Check:** Rigorously verify all changes to prevent deployment issues.
+
+### 📋 Commit Message Convention
+|     Gitmoji     | Description |
+|:---------------:| - |
+|   `✨ feat: `   | 새로운 기능 추가 |
+|   `🐛 fix: `    | 버그 수정 |
+|   `📝 docs: `   | 문서 추가, 수정, 삭제 |
+|   `✅ test: `   | 테스트 코드 추가, 수정, 삭제 |
+|  `💄 style: `   | 코드 형식 변경 |
+| `♻️ refactor: ` | 코드 리팩토링 |
+|   `⚡️ perf: `   | 성능 개선 |
+|    `💚 ci: `    | CI 관련 설정 수정 |
+|  `🚀 chore: `   | 기타 변경사항 |
+|  `🔥 remove:`️   | 코드 및 파일 제거 |
+
+### 🛠 Development Workflow
+
+#### Phase 1: Preparation (Setup)
+1. **이슈 생성:** 작업 성격에 맞는 템플릿(`✨--feat--기능-추가.md` 또는 `♻️--refactor--리팩토링.md`)으로 이슈 생성.
+2. **이슈 번호 확인:** 생성된 이슈 번호 추출 및 기억.
+3. **브랜치 생성:** `develop` 브랜치 베이스로 `Feat/#번호` 또는 `Refactor/#번호` 브랜치 생성.
+4. **체크아웃:** 생성된 브랜치로 전환.
+5. **개발 시작:** 해당 브랜치에서 기능 구현.
+
+#### Phase 2: Finalization (Cleanup & Review)
+1. **테스트 코드 작성:** 비즈니스 로직 및 예외 케이스 검증.
+2. **작업 단위 커밋:** 상기 커밋 컨벤션을 준수하여 커밋.
+3. **테스트 통과 확인:** `npm test`를 통한 모든 테스트 통과 확인.
+4. **브랜치 확인 및 푸시:** 올바른 브랜치인지 확인 후 원격 저장소에 푸시.
+5. **PR 생성:** `pull_request_template.md`를 사용하여 `develop` 브랜치로 PR 생성.
+6. **PR 리뷰 대응:** PR 리뷰가 등록되면 다음 단계를 따릅니다.
+    - **작업 보류:** 현재 진행 중인 작업이 있다면 `git stash` 등을 이용해 변경점을 안전하게 보류합니다.
+    - **해당 브랜치 체크아웃:** PR과 관련된 브랜치로 체크아웃합니다. (예: PR #5가 `Feat/#4` 브랜치인 경우 `Feat/#4`로 전환)
+    - **리뷰 대응 수행:** 리뷰 분석, 수정/판단, 댓글 작성 절차를 진행합니다.
+    - **작업 복원:** 리뷰 대응이 끝난 후, 보류했던 작업이 있다면 다시 복원합니다.
+
+#### Phase 3: 배포 준비 (Develop to Main)
+`develop` 브랜치의 작업이 완료되어 `main`으로 머지할 준비가 되면 다음 단계를 따릅니다.
+1. **작업 보류 및 체크아웃:** 진행 중인 작업을 `git stash`로 보류하고 `develop` 브랜치로 체크아웃합니다.
+2. **테스트 수행:** `npm test`를 실행하여 모든 기능이 정상인지 최종 확인합니다.
+3. **빌드 및 구동 확인:** `npm start` 등을 통해 애플리케이션이 정상적으로 구동되는지 확인합니다. (봇 특성상 무한 대기할 수 있으므로, 일정 시간 후 자동 종료되거나 초기 로그 확인 후 프로세스를 종료하는 방식으로 검증합니다.)
+4. **배포 PR 생성:** `develop` -> `main` 방향으로 PR을 생성합니다.
+    - **타이틀:** `✅ [Deploy] v?.?.? 배포` 패턴 (예: `✅ [Deploy] v1.0.0 배포`)
+    - **버전 규칙:** 
+        - `Major (1.0.0)`: 대규모 변경 사항
+        - `Minor (0.1.0)`: 새로운 기능 추가
+        - `Patch (0.0.1)`: 사소한 버그 수정

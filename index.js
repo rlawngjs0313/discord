@@ -1,5 +1,20 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
+const express = require('express');
+
+// Express 앱 설정
+const app = express();
+const PORT = process.env.PORT || 8000;
+
+// OAuth2 콜백 핸들러
+app.get('/oauth/callback', (req, res) => {
+    res.send('봇 초대가 성공적으로 완료되었습니다! 이 창을 닫으셔도 좋습니다.');
+});
+
+// 기본 헬스체크 경로
+app.get('/', (req, res) => {
+    res.send('Discord Bot Server is running.');
+});
 
 // 클라이언트 생성 및 인텐트 설정
 const client = new Client({
@@ -35,10 +50,15 @@ client.on('messageCreate', handleMessage);
 
 // 봇 로그인 (직접 실행될 때만 로그인)
 if (require.main === module) {
+    // Express 서버 시작
+    app.listen(PORT, () => {
+        console.log(`Web server is running on port ${PORT}`);
+    });
+
     client.login(process.env.DISCORD_TOKEN).catch(error => {
         console.error('로그인 실패:', error);
         process.exit(1);
     });
 }
 
-module.exports = { client, handleMessage };
+module.exports = { client, handleMessage, app };
