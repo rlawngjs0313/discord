@@ -54,8 +54,11 @@ describe('Message Handler', () => {
 
 describe('Web Server API', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
-    global.fetch = jest.fn();
+    jest.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   test('GET / should return server status', async () => {
@@ -107,6 +110,26 @@ describe('Web Server API', () => {
     expect(response.statusCode).toBe(200);
     expect(response.text).toContain('newuser');
     expect(response.text).not.toContain('newuser#');
+  });
+
+  test('GET /oauth/callback should return success message with escaped username', async () => {
+    // 1. 토큰 교환 모킹
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: 'mock_token' }),
+    });
+
+    // 2. 사용자 정보 조회 모킹 (악성 스크립트 포함)
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ username: '<script>alert(1)</script>', discriminator: '0' }),
+    });
+
+    const response = await request(app).get('/oauth/callback?code=mock_code');
+    
+    expect(response.statusCode).toBe(200);
+    expect(response.text).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(response.text).not.toContain('<script>');
   });
 
   test('GET /oauth/callback should return 500 if token exchange fails', async () => {

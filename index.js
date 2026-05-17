@@ -6,6 +6,16 @@ const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 8000;
 
+// HTML 이스케이프 유틸리티 (XSS 방지)
+const escapeHtml = (text) => {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+};
+
 // OAuth2 콜백 핸들러
 app.get('/oauth/callback', async (req, res) => {
     const { code } = req.query;
@@ -51,10 +61,13 @@ app.get('/oauth/callback', async (req, res) => {
             return res.status(500).send('사용자 정보를 조회하는 데 실패했습니다.');
         }
 
-        // 3. 성공 응답
+        // 3. 성공 응답 (XSS 방지를 위해 사용자명 이스케이프)
+        const safeUsername = escapeHtml(userData.username);
+        const discriminator = userData.discriminator === '0' ? '' : '#' + userData.discriminator;
+
         res.send(`
             <h1>봇 초대가 성공적으로 완료되었습니다!</h1>
-            <p>환영합니다, <strong>${userData.username}${userData.discriminator === '0' ? '' : '#' + userData.discriminator}</strong>님!</p>
+            <p>환영합니다, <strong>${safeUsername}${discriminator}</strong>님!</p>
             <p>이제 디스코드 서버에서 봇을 사용할 수 있습니다. 이 창을 닫으셔도 좋습니다.</p>
         `);
     } catch (error) {
