@@ -1,9 +1,35 @@
 const request = require('supertest');
+const crypto = require('crypto');
 const { createServer } = require('../../../src/domains/web/web.service');
+const config = require('../../../src/config');
+
+// config 모킹하여 테스트 환경 독립성 확보
+jest.mock('../../../src/config', () => {
+  const originalConfig = jest.requireActual('../../../src/config');
+  return {
+    ...originalConfig,
+    web: {
+      ...originalConfig.web,
+      cookieSecret: 'test-secret-key-for-unit-tests'
+    }
+  };
+});
 
 describe('Web Server API', () => {
   let app;
   let mockClient;
+
+  /**
+   * express에서 사용하는 서명된 쿠키 생성 (s:value.signature)
+   */
+  const signCookie = (val, secret) => {
+    const signature = crypto
+      .createHmac('sha256', secret)
+      .update(val)
+      .digest('base64')
+      .replace(/\=+$/, '');
+    return 's:' + val + '.' + signature;
+  };
 
   beforeEach(() => {
     jest.spyOn(global, 'fetch');
@@ -36,8 +62,7 @@ describe('Web Server API', () => {
 
   test('GET /oauth/callback should return success message (ModelAndView)', async () => {
     const state = 'valid-state';
-    // 서명된 쿠키 값 (config.web.cookieSecret이 모킹되지 않은 경우 기본 fallback 값 사용)
-    const signedCookie = 's:valid-state.IkGPLApHZwGOvK9mz/cAlwqYgO0koPJSnE+2ByAM9mE';
+    const signedCookie = signCookie(state, config.web.cookieSecret);
     
     // 1. 토큰 교환 모킹
     global.fetch.mockResolvedValueOnce({
