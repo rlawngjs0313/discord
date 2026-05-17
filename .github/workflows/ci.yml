@@ -1,6 +1,8 @@
 name: Discord Bot CI (Test)
 
 on:
+  push:
+    branches: [ develop ]
   pull_request:
     branches: [ develop ]
 
@@ -22,3 +24,15 @@ jobs:
 
     - name: Run Tests
       run: npm test
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image (Verification)
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: false
+        tags: discord-bot:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
