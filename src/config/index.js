@@ -19,7 +19,9 @@ module.exports = {
     },
     web: {
         port: process.env.PORT || 8000,
-        cookieSecret: process.env.COOKIE_SECRET || 'fallback-secret-for-dev-only'
+        cookieSecret: process.env.COOKIE_SECRET || (process.env.NODE_ENV === 'production' 
+            ? (() => { throw new Error('PRODUCTION ERROR: COOKIE_SECRET environment variable is required'); })()
+            : 'dev-fallback-secret-strictly-for-local-development')
     },
     scheduler: {
         channelId: process.env.DISCORD_CHANNEL_ID,

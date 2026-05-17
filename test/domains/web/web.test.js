@@ -36,6 +36,8 @@ describe('Web Server API', () => {
 
   test('GET /oauth/callback should return success message (ModelAndView)', async () => {
     const state = 'valid-state';
+    // 서명된 쿠키 값 (config.web.cookieSecret이 모킹되지 않은 경우 기본 fallback 값 사용)
+    const signedCookie = 's:valid-state.IkGPLApHZwGOvK9mz/cAlwqYgO0koPJSnE+2ByAM9mE';
     
     // 1. 토큰 교환 모킹
     global.fetch.mockResolvedValueOnce({
@@ -51,7 +53,7 @@ describe('Web Server API', () => {
 
     const response = await request(app)
       .get(`/oauth/callback?code=mock_code&state=${state}`)
-      .set('Cookie', [`oauth_state=${state}`]);
+      .set('Cookie', [`oauth_state=${signedCookie}`]);
     
     expect(response.statusCode).toBe(200);
     expect(response.text).toContain('TestUser#1234');

@@ -10,11 +10,12 @@ const router = express.Router();
 router.get('/invite', (req, res) => {
     const state = crypto.randomBytes(16).toString('hex');
     
-    // CSRF 방지를 위해 state를 보안 쿠키에 저장 (15분 만료)
+    // CSRF 방지를 위해 state를 보안 쿠키에 저장 (15분 만료, 서명 활성화)
     res.cookie('oauth_state', state, { 
         maxAge: 15 * 60 * 1000, 
         httpOnly: true, 
-        secure: process.env.NODE_ENV === 'production' 
+        secure: process.env.NODE_ENV === 'production',
+        signed: true
     });
 
     const url = new URL(config.discord.endpoints.authorize);
@@ -32,7 +33,7 @@ router.get('/invite', (req, res) => {
  */
 router.get('/oauth/callback', async (req, res) => {
     const { code, state } = req.query;
-    const savedState = req.cookies.oauth_state;
+    const savedState = req.signedCookies.oauth_state;
 
     // 1. State 검증 (CSRF 방어)
     if (!state || state !== savedState) {
