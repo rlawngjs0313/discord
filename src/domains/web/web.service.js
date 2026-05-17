@@ -45,7 +45,8 @@ const oauthService = {
 
         const tokens = await tokenResponse.json();
         if (!tokenResponse.ok) {
-            throw new Error(`Token exchange failed: ${JSON.stringify(tokens)}`);
+            console.error('Token exchange failed:', tokens);
+            throw new Error('Token exchange failed');
         }
 
         // 2. 사용자 정보 조회
@@ -58,7 +59,8 @@ const oauthService = {
 
         const userData = await userResponse.json();
         if (!userResponse.ok) {
-            throw new Error(`User info fetch failed: ${JSON.stringify(userData)}`);
+            console.error('User info fetch failed:', userData);
+            throw new Error('User info fetch failed');
         }
 
         return userData;

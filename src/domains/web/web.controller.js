@@ -49,7 +49,7 @@ router.get('/oauth/callback', async (req, res) => {
             discriminator: userData.discriminator
         });
     } catch (error) {
-        if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
+        if (error?.name === 'TimeoutError' || error?.message?.toLowerCase().includes('timeout')) {
             console.error('디스코드 API 호출 타임아웃 발생');
             return res.status(504).send('인증 서비스 응답 시간이 초과되었습니다.');
         }
