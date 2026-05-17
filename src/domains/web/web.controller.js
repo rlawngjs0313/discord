@@ -51,15 +51,11 @@ router.get('/oauth/callback', async (req, res) => {
             return res.status(500).send('사용자 정보를 조회하는 데 실패했습니다.');
         }
 
-        // 3. 성공 응답
-        const safeUsername = escapeHtml(userData.username);
-        const discriminator = userData.discriminator === '0' ? '' : '#' + userData.discriminator;
-
-        res.send(`
-            <h1>봇 초대가 성공적으로 완료되었습니다!</h1>
-            <p>환영합니다, <strong>${safeUsername}${discriminator}</strong>님!</p>
-            <p>이제 디스코드 서버에서 봇을 사용할 수 있습니다. 이 창을 닫으셔도 좋습니다.</p>
-        `);
+        // 3. 성공 응답 (ModelAndView 스타일)
+        res.render('callback', {
+            username: userData.username,
+            discriminator: userData.discriminator
+        });
     } catch (error) {
         console.error('OAuth2 처리 중 시스템 오류 발생:', error);
         res.status(500).send('서버 내부 오류가 발생했습니다.');
@@ -73,7 +69,7 @@ const createHealthRouter = (client) => {
     const healthRouter = express.Router();
     healthRouter.get('/', (req, res) => {
         const status = client.isReady() ? 'Online' : 'Starting';
-        res.send('Discord Bot Server is ' + status + '.');
+        res.render('index', { status });
     });
     return healthRouter;
 };
