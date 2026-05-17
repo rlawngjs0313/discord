@@ -8,6 +8,7 @@
  */
 const sendScheduledGif = async (client, options) => {
     const { channelId, channelName, gifUrl } = options;
+    console.log(`스케줄러 동작: 움짤 전송 시도 (${channelId ? 'ID ' + channelId : '채널명 ' + channelName})`);
 
     try {
         let channel;
@@ -23,7 +24,7 @@ const sendScheduledGif = async (client, options) => {
 
         if (channel && channel.isTextBased()) {
             await channel.send(gifUrl);
-            console.log(`스케줄된 GIF 전송 완료: ${channelId ? 'ID ' + channelId : '채널명 ' + channelName}`);
+            console.log('스케줄러 동작: 움짤 전송 완료!');
         } else {
             console.error(`채널을 찾을 수 없거나 메시지 전송이 불가능합니다: ${channelId || channelName}`);
         }

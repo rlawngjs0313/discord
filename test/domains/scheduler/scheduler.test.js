@@ -1,7 +1,8 @@
 const { sendScheduledGif } = require('../../../src/domains/scheduler/scheduler.service');
 
 describe('Scheduler Service', () => {
-  test('sendScheduledGif should find channel by ID and send GIF', async () => {
+  test('sendScheduledGif should find channel by ID and send GIF with logs', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     const mockSend = jest.fn().mockResolvedValue(null);
     const mockChannel = { 
       isTextBased: () => true,
@@ -17,6 +18,9 @@ describe('Scheduler Service', () => {
 
     expect(mockClient.channels.fetch).toHaveBeenCalledWith('123');
     expect(mockSend).toHaveBeenCalledWith('http://mock.url');
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('스케줄러 동작: 움짤 전송 시도'));
+    expect(consoleSpy).toHaveBeenCalledWith('스케줄러 동작: 움짤 전송 완료!');
+    consoleSpy.mockRestore();
   });
 
   test('sendScheduledGif should find channel by name if ID missing', async () => {
