@@ -48,9 +48,23 @@ We follow a modified Git Flow strategy:
     ```bash
     npm install
     ```
-2.  Create a `.env` file and add your Discord token:
+2.  Create a `.env` file and add your configuration:
     ```env
-    DISCORD_TOKEN=your_token_here
+    # Discord Bot Settings
+    DISCORD_TOKEN=your_bot_token_here
+    DISCORD_CLIENT_ID=your_client_id_here
+    DISCORD_CLIENT_SECRET=your_client_secret_here
+    DISCORD_REDIRECT_URI=http://localhost:8000/oauth/callback
+
+    # Web Server Settings
+    PORT=8000
+    COOKIE_SECRET=your_random_secret_here (min 32 chars recommended)
+    NODE_ENV=development
+
+    # Scheduler Settings (Optional)
+    DISCORD_CHANNEL_ID=your_target_channel_id
+    SCHEDULER_CHANNEL_NAME=깡-통
+    SCHEDULER_GIF_URL=https://giphy.com/...
     ```
 3.  Start the bot locally:
     ```bash
@@ -82,6 +96,7 @@ For the GitHub Actions workflow to succeed, the following secrets must be config
 - `DISCORD_CLIENT_ID`: The Discord application Client ID.
 - `DISCORD_CLIENT_SECRET`: The Discord application Client Secret.
 - `DISCORD_REDIRECT_URI`: The OAuth2 redirect URI (e.g., http://GCE_IP/oauth/callback).
+- `COOKIE_SECRET`: A secret string used to sign cookies for security (OAuth2 state validation).
 - `GCE_INSTANCE`: The name of the target GCE instance.
 
 ### GCE Instance Setup Hint
