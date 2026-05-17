@@ -156,7 +156,9 @@ describe('Scheduled GIF Feature', () => {
     };
     const mockClient = {
       channels: {
-        cache: [mockChannel]
+        cache: {
+            find: jest.fn().mockReturnValue(mockChannel)
+        }
       },
     };
 
@@ -165,7 +167,7 @@ describe('Scheduled GIF Feature', () => {
     expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('giphy.com/gifs/0357-1557'));
   });
 
-  test('sendScheduledGif should log error if channel name not found', async () => {
+  test('sendScheduledGif should log error if channel name not found or not text-based', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const mockClient = {
       channels: {
@@ -178,7 +180,7 @@ describe('Scheduled GIF Feature', () => {
     await sendScheduledGif(mockClient, '깡-통');
 
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('채널을 찾을 수 없습니다: "깡-통"')
+      expect.stringContaining('채널을 찾을 수 없거나 메시지 전송이 불가능한 채널입니다: "깡-통"')
     );
     consoleSpy.mockRestore();
   });
@@ -204,4 +206,8 @@ describe('Real Token Login Verification', () => {
             fail('Login failed with the provided token: ' + error.message);
         }
     });
+});
+
+afterAll(async () => {
+    await client.destroy();
 });

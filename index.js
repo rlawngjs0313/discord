@@ -114,15 +114,20 @@ const handleMessage = async (message) => {
 
 // 스케줄된 메시지 전송 로직
 const sendScheduledGif = async (client, channelName) => {
+    if (!channelName) {
+        console.error('스케줄된 메시지 전송 실패: channelName이 설정되지 않았습니다.');
+        return;
+    }
+
     try {
         // 모든 채널 중에서 이름이 일치하는 텍스트 채널 검색
         const channel = client.channels.cache.find(c => c.name === channelName && c.isTextBased());
         
-        if (channel) {
+        if (channel && channel.isTextBased()) {
             await channel.send('https://giphy.com/gifs/0357-1557-15-57-MethllSyrDoPZ13awK');
             console.log(`스케줄된 GIF 전송 완료: 채널명 "${channelName}" (15:57)`);
         } else {
-            console.error(`채널을 찾을 수 없습니다: "${channelName}"`);
+            console.error(`채널을 찾을 수 없거나 메시지 전송이 불가능한 채널입니다: "${channelName}"`);
         }
     } catch (error) {
         console.error('스케줄된 메시지 전송 중 오류 발생:', error);
