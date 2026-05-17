@@ -2,7 +2,7 @@ require('dotenv').config();
 const cron = require('node-cron');
 const config = require('./config');
 const { client, registerEvents } = require('./domains/bot/bot.service');
-const { createServer } = require('./domains/web/web.service');
+const { createServer } = require('./domains/web/web.app');
 const { sendScheduledGif } = require('./domains/scheduler/scheduler.service');
 
 const app = createServer(client);

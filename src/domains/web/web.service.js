@@ -1,6 +1,3 @@
-const express = require('express');
-const path = require('path');
-const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
 const config = require('../../config');
 
@@ -43,10 +40,11 @@ const oauthService = {
             signal: AbortSignal.timeout(config.api.timeout)
         });
 
-        const tokens = await tokenResponse.json();
+        const tokens = await tokenResponse.json().catch(() => ({}));
         if (!tokenResponse.ok) {
             console.error('Token exchange failed:', tokens);
-            throw new Error('Token exchange failed');
+            const errorMsg = tokens.error_description || tokens.error || 'Unknown error during token exchange';
+            throw new Error(`Token exchange failed: ${errorMsg}`);
         }
 
         // 2. 사용자 정보 조회
@@ -57,33 +55,15 @@ const oauthService = {
             signal: AbortSignal.timeout(config.api.timeout)
         });
 
-        const userData = await userResponse.json();
+        const userData = await userResponse.json().catch(() => ({}));
         if (!userResponse.ok) {
             console.error('User info fetch failed:', userData);
-            throw new Error('User info fetch failed');
+            const errorMsg = userData.message || 'Unknown error during user info fetch';
+            throw new Error(`User info fetch failed: ${errorMsg}`);
         }
 
         return userData;
     }
 };
 
-/**
- * Express 서버 초기화 (Main Entry Point 역할 유지)
- */
-const createServer = (client) => {
-    // 순환 참조 방지를 위해 지연 로딩
-    const { oauthRouter, createHealthRouter } = require('./web.controller');
-    
-    const app = express();
-    
-    app.use(cookieParser(config.web.cookieSecret));
-    app.set('view engine', 'ejs');
-    app.set('views', path.join(__dirname, '../../views'));
-
-    app.use('/', oauthRouter);
-    app.use('/', createHealthRouter(client));
-
-    return app;
-};
-
-module.exports = { createServer, oauthService };
+module.exports = { oauthService };

@@ -49,8 +49,8 @@ router.get('/oauth/callback', async (req, res) => {
             discriminator: userData.discriminator
         });
     } catch (error) {
-        if (error?.name === 'TimeoutError' || error?.message?.toLowerCase().includes('timeout')) {
-            console.error('디스코드 API 호출 타임아웃 발생');
+        if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+            console.error('디스코드 API 호출 타임아웃 또는 중단 발생');
             return res.status(504).send('인증 서비스 응답 시간이 초과되었습니다.');
         }
         console.error('OAuth2 처리 중 시스템 오류 발생:', error);

@@ -1,6 +1,6 @@
 const request = require('supertest');
 const crypto = require('crypto');
-const { createServer } = require('../../../src/domains/web/web.service');
+const { createServer } = require('../../../src/domains/web/web.app');
 const config = require('../../../src/config');
 
 // config 모킹하여 테스트 환경 독립성 확보
