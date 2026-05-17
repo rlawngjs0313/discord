@@ -16,13 +16,13 @@ client.once('ready', () => {
 });
 
 // 메시지 처리 로직 분리 (테스트 가능하게 함)
-const handleMessage = (message) => {
+const handleMessage = async (message) => {
     // 봇이 보낸 메시지라면 무시
     if (message.author.bot) return;
 
     // '!ping'이라는 메시지에 'Pong!'으로 응답
     if (message.content === '!ping') {
-        message.reply('Pong!');
+        await message.reply('Pong!');
     }
 };
 
