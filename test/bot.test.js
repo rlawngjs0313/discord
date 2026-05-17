@@ -1,5 +1,6 @@
 const request = require('supertest');
-const { client, handleMessage, app } = require('../index.js');
+const { Client, GatewayIntentBits } = require('discord.js');
+const { client, handleMessage, app, sendScheduledGif } = require('../index.js');
 
 describe('Discord Bot Basic Configuration', () => {
   test('Bot client should be initialized with correct intents', () => {
@@ -143,4 +144,70 @@ describe('Web Server API', () => {
     expect(response.statusCode).toBe(500);
     expect(response.text).toContain('인증 토큰을 가져오는 데 실패했습니다');
   });
+});
+
+describe('Scheduled GIF Feature', () => {
+  test('sendScheduledGif should find channel by name and send GIF', async () => {
+    const mockSend = jest.fn().mockResolvedValue(null);
+    const mockChannel = { 
+      name: '깡-통', 
+      isTextBased: () => true,
+      send: mockSend 
+    };
+    const mockClient = {
+      channels: {
+        cache: {
+            find: jest.fn().mockReturnValue(mockChannel)
+        }
+      },
+    };
+
+    await sendScheduledGif(mockClient, '깡-통');
+
+    expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('giphy.com/gifs/0357-1557'));
+  });
+
+  test('sendScheduledGif should log error if channel name not found or not text-based', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const mockClient = {
+      channels: {
+        cache: {
+            find: jest.fn().mockReturnValue(null)
+        }
+      },
+    };
+
+    await sendScheduledGif(mockClient, '깡-통');
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('채널을 찾을 수 없거나 메시지 전송이 불가능한 채널입니다: "깡-통"')
+    );
+    consoleSpy.mockRestore();
+  });
+});
+
+describe('Real Token Login Verification', () => {
+    test('Bot should successfully login with a real token', async () => {
+        // 실제 토큰 테스트는 환경 변수가 있을 때만 수행 (보안 및 CI 환경 고려)
+        if (!process.env.DISCORD_TOKEN || process.env.DISCORD_TOKEN === 'your_token_here') {
+            console.log('Skipping real token login test: No valid token provided.');
+            return;
+        }
+
+        const testClient = new Client({
+            intents: [GatewayIntentBits.Guilds],
+        });
+
+        try {
+            await testClient.login(process.env.DISCORD_TOKEN);
+            expect(testClient.user).toBeDefined();
+            await testClient.destroy(); // 테스트 후 클라이언트 종료
+        } catch (error) {
+            fail('Login failed with the provided token: ' + error.message);
+        }
+    });
+});
+
+afterAll(async () => {
+    await client.destroy();
 });

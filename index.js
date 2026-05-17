@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 const express = require('express');
+const cron = require('node-cron');
 
 // Express 앱 설정
 const app = express();
@@ -111,11 +112,40 @@ const handleMessage = async (message) => {
     }
 };
 
-// 메시지가 생성되었을 때 실행되는 이벤트
-client.on('messageCreate', handleMessage);
+// 스케줄된 메시지 전송 로직
+const sendScheduledGif = async (client, channelName) => {
+    if (!channelName) {
+        console.error('스케줄된 메시지 전송 실패: channelName이 설정되지 않았습니다.');
+        return;
+    }
 
-// 봇 로그인 (직접 실행될 때만 로그인)
+    try {
+        // 모든 채널 중에서 이름이 일치하는 텍스트 채널 검색
+        const channel = client.channels.cache.find(c => c.name === channelName && c.isTextBased());
+        
+        if (channel && channel.isTextBased()) {
+            await channel.send('https://giphy.com/gifs/0357-1557-15-57-MethllSyrDoPZ13awK');
+            console.log(`스케줄된 GIF 전송 완료: 채널명 "${channelName}" (15:57)`);
+        } else {
+            console.error(`채널을 찾을 수 없거나 메시지 전송이 불가능한 채널입니다: "${channelName}"`);
+        }
+    } catch (error) {
+        console.error('스케줄된 메시지 전송 중 오류 발생:', error);
+    }
+};
+
+// 봇 로그인 및 서버 시작 (직접 실행될 때만)
 if (require.main === module) {
+    // 매일 15:57에 GIF 전송 스케줄링 (한국 시간 기준 Asia/Seoul)
+    cron.schedule('57 15 * * *', () => {
+        if (client.isReady()) {
+            sendScheduledGif(client, '깡-통');
+        }
+    }, {
+        scheduled: true,
+        timezone: "Asia/Seoul"
+    });
+
     // Express 서버 시작
     app.listen(PORT, () => {
         console.log(`Web server is running on port ${PORT}`);
@@ -130,4 +160,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { client, handleMessage, app };
+module.exports = { client, handleMessage, app, sendScheduledGif };
