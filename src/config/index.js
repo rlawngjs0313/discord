@@ -22,13 +22,13 @@ module.exports = {
         cookieSecret: process.env.COOKIE_SECRET || 'fallback-secret-for-dev-only'
     },
     scheduler: {
-        channelId: process.env.DISCORD_CHANNEL_ID, // ID 기반 조회를 우선순위로 설정
+        channelId: process.env.DISCORD_CHANNEL_ID,
         channelName: process.env.SCHEDULER_CHANNEL_NAME || '깡-통',
         gifUrl: process.env.SCHEDULER_GIF_URL || 'https://giphy.com/gifs/0357-1557-15-57-MethllSyrDoPZ13awK',
         cronSchedule: process.env.SCHEDULER_CRON || '57 15 * * *',
         timezone: process.env.SCHEDULER_TIMEZONE || 'Asia/Seoul'
     },
     api: {
-        timeout: 5000 // 5초 타임아웃
+        timeout: 5000
     }
 };

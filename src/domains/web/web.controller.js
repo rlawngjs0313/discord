@@ -85,7 +85,7 @@ router.get('/oauth/callback', async (req, res) => {
             return res.status(500).send('사용자 정보를 조회하는 데 실패했습니다.');
         }
 
-        // 4. 성공 응답
+        // 4. 성공 응답 (ModelAndView 스타일)
         res.render('callback', {
             username: userData.username,
             discriminator: userData.discriminator

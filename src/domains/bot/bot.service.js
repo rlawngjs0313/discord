@@ -22,11 +22,16 @@ const handleMessage = async (message) => {
     }
 };
 
-// 이벤트 등록
-client.once('ready', () => {
-    console.log(`Logged in as ${client.user.tag}!`);
-});
+/**
+ * 봇 이벤트 리스너 등록 (Side Effect 방지)
+ * @param {import('discord.js').Client} client 
+ */
+const registerEvents = (client) => {
+    client.once('ready', () => {
+        console.log(`Logged in as ${client.user.tag}!`);
+    });
 
-client.on('messageCreate', handleMessage);
+    client.on('messageCreate', handleMessage);
+};
 
-module.exports = { client, handleMessage };
+module.exports = { client, handleMessage, registerEvents };
