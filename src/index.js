@@ -20,7 +20,11 @@ const start = () => {
     // 2. 스케줄러 등록
     cron.schedule(config.scheduler.cronSchedule, () => {
         if (client.isReady()) {
-            sendScheduledGif(client, config.scheduler.channelName, config.scheduler.gifUrl);
+            sendScheduledGif(client, {
+                channelId: config.scheduler.channelId,
+                channelName: config.scheduler.channelName,
+                gifUrl: config.scheduler.gifUrl
+            });
         }
     }, {
         scheduled: true,
