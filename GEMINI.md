@@ -79,6 +79,9 @@ For the GitHub Actions workflow to succeed, the following secrets must be config
 - `GCP_WIF_PROVIDER`: The full identifier of the Workload Identity Pool provider.
 - `GCP_WIF_SERVICE_ACCOUNT`: The email address of the GCP Service Account.
 - `DISCORD_TOKEN`: The Discord bot token.
+- `DISCORD_CLIENT_ID`: The Discord application Client ID.
+- `DISCORD_CLIENT_SECRET`: The Discord application Client Secret.
+- `DISCORD_REDIRECT_URI`: The OAuth2 redirect URI (e.g., http://GCE_IP/oauth/callback).
 - `GCE_INSTANCE`: The name of the target GCE instance.
 
 ### GCE Instance Setup Hint

@@ -66,6 +66,9 @@ jobs:
               --restart always \
               -p 80:8000 \
               -e DISCORD_TOKEN=${{ secrets.DISCORD_TOKEN }} \
+              -e DISCORD_CLIENT_ID=${{ secrets.DISCORD_CLIENT_ID }} \
+              -e DISCORD_CLIENT_SECRET=${{ secrets.DISCORD_CLIENT_SECRET }} \
+              -e DISCORD_REDIRECT_URI=${{ secrets.DISCORD_REDIRECT_URI }} \
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             
             # 사용하지 않는 이미지 정리
