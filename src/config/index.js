@@ -10,15 +10,25 @@ module.exports = {
             GatewayIntentBits.Guilds,
             GatewayIntentBits.GuildMessages,
             GatewayIntentBits.MessageContent,
-        ]
+        ],
+        endpoints: {
+            token: 'https://discord.com/api/v10/oauth2/token',
+            userMe: 'https://discord.com/api/v10/users/@me',
+            authorize: 'https://discord.com/api/oauth2/authorize'
+        }
     },
     web: {
-        port: process.env.PORT || 8000
+        port: process.env.PORT || 8000,
+        cookieSecret: process.env.COOKIE_SECRET || 'fallback-secret-for-dev-only'
     },
     scheduler: {
-        channelName: '깡-통',
-        gifUrl: 'https://giphy.com/gifs/0357-1557-15-57-MethllSyrDoPZ13awK',
-        cronSchedule: '57 15 * * *',
-        timezone: 'Asia/Seoul'
+        channelId: process.env.DISCORD_CHANNEL_ID, // ID 기반 조회를 우선순위로 설정
+        channelName: process.env.SCHEDULER_CHANNEL_NAME || '깡-통',
+        gifUrl: process.env.SCHEDULER_GIF_URL || 'https://giphy.com/gifs/0357-1557-15-57-MethllSyrDoPZ13awK',
+        cronSchedule: process.env.SCHEDULER_CRON || '57 15 * * *',
+        timezone: process.env.SCHEDULER_TIMEZONE || 'Asia/Seoul'
+    },
+    api: {
+        timeout: 5000 // 5초 타임아웃
     }
 };
