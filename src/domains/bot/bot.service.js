@@ -15,6 +15,7 @@ const handleMessage = async (message) => {
 
     if (message.content.trim() === '!ping') {
         try {
+            console.log('!ping 감지: Pong 메시지 전송!');
             await message.reply('Pong!');
         } catch (error) {
             console.error('메시지 응답 중 오류 발생:', error);
