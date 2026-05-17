@@ -21,8 +21,12 @@ const handleMessage = async (message) => {
     if (message.author.bot) return;
 
     // '!ping'이라는 메시지에 'Pong!'으로 응답
-    if (message.content === '!ping') {
-        await message.reply('Pong!');
+    if (message.content.trim() === '!ping') {
+        try {
+            await message.reply('Pong!');
+        } catch (error) {
+            console.error('메시지 응답 중 오류 발생:', error);
+        }
     }
 };
 
@@ -31,7 +35,10 @@ client.on('messageCreate', handleMessage);
 
 // 봇 로그인 (직접 실행될 때만 로그인)
 if (require.main === module) {
-    client.login(process.env.DISCORD_TOKEN);
+    client.login(process.env.DISCORD_TOKEN).catch(error => {
+        console.error('로그인 실패:', error);
+        process.exit(1);
+    });
 }
 
 module.exports = { client, handleMessage };

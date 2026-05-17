@@ -1,4 +1,3 @@
-const { GatewayIntentBits } = require('discord.js');
 const { client, handleMessage } = require('../index.js');
 
 describe('Discord Bot Basic Configuration', () => {
