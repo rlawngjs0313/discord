@@ -54,7 +54,7 @@ app.get('/oauth/callback', async (req, res) => {
         // 3. 성공 응답
         res.send(`
             <h1>봇 초대가 성공적으로 완료되었습니다!</h1>
-            <p>환영합니다, <strong>${userData.username}#${userData.discriminator === '0' ? '' : userData.discriminator}</strong>님!</p>
+            <p>환영합니다, <strong>${userData.username}${userData.discriminator === '0' ? '' : '#' + userData.discriminator}</strong>님!</p>
             <p>이제 디스코드 서버에서 봇을 사용할 수 있습니다. 이 창을 닫으셔도 좋습니다.</p>
         `);
     } catch (error) {
