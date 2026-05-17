@@ -1,5 +1,5 @@
 const request = require('supertest');
-const { client, handleMessage, app } = require('../index.js');
+const { client, handleMessage, app, sendScheduledGif } = require('../index.js');
 
 describe('Discord Bot Basic Configuration', () => {
   test('Bot client should be initialized with correct intents', () => {
@@ -142,5 +142,40 @@ describe('Web Server API', () => {
     
     expect(response.statusCode).toBe(500);
     expect(response.text).toContain('인증 토큰을 가져오는 데 실패했습니다');
+  });
+});
+
+describe('Scheduled GIF Feature', () => {
+  test('sendScheduledGif should fetch channel and send GIF', async () => {
+    const mockSend = jest.fn().mockResolvedValue(null);
+    const mockChannel = { send: mockSend };
+    const mockClient = {
+      channels: {
+        fetch: jest.fn().mockResolvedValue(mockChannel),
+      },
+    };
+    const channelId = '123456789';
+
+    await sendScheduledGif(mockClient, channelId);
+
+    expect(mockClient.channels.fetch).toHaveBeenCalledWith(channelId);
+    expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('giphy.com/gifs/0357-1557'));
+  });
+
+  test('sendScheduledGif should log error if channel not found', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const mockClient = {
+      channels: {
+        fetch: jest.fn().mockResolvedValue(null),
+      },
+    };
+
+    await sendScheduledGif(mockClient, 'invalid_id');
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('채널을 찾을 수 없습니다'),
+      'invalid_id'
+    );
+    consoleSpy.mockRestore();
   });
 });
