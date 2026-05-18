@@ -8,7 +8,7 @@ import {
     NoSubscriberBehavior,
     VoiceConnection
 } from '@discordjs/voice';
-import { Message, GuildMember } from 'discord.js';
+import { Message, GuildMember, GuildTextBasedChannel } from 'discord.js';
 import play from 'play-dl';
 
 // 오디오 플레이어 싱글톤 관리
@@ -27,17 +27,41 @@ player.on('error', error => {
 });
 
 /**
+ * 유튜브 URL 표준화 (단축 URL 변환)
+ * @param url 입력된 URL
+ * @returns 표준화된 URL
+ */
+const normalizeYoutubeUrl = (url: string): string => {
+    try {
+        const urlObj = new URL(url);
+        // youtu.be 단축 URL인 경우
+        if (urlObj.hostname === 'youtu.be') {
+            const videoId = urlObj.pathname.substring(1);
+            const searchParams = urlObj.search;
+            return `https://www.youtube.com/watch?v=${videoId}${searchParams ? '&' + searchParams.substring(1) : ''}`;
+        }
+        return url;
+    } catch (e) {
+        return url;
+    }
+};
+
+/**
  * 음악 재생 명령어 핸들러
  * @param message 디스코드 메시지
  * @param args 명령어 인자 (URL)
  */
 export const handlePlayCommand = async (message: Message, args: string[]): Promise<void> => {
-    const url = args[0];
+    let rawUrl = args[0];
 
-    if (!url) {
+    if (!rawUrl) {
         await message.reply('유튜브 링크를 입력해주세요! (예: !재생 <URL>)');
         return;
     }
+
+    // URL 표준화 처리
+    const url = normalizeYoutubeUrl(rawUrl);
+    console.log(`URL 표준화: ${rawUrl} -> ${url}`);
 
     // URL 유효성 검사
     const validation = await play.validate(url);
