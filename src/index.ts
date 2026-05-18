@@ -1,21 +1,21 @@
-require('dotenv').config();
-const cron = require('node-cron');
-const config = require('./config');
-const { client, registerEvents } = require('./domains/bot/bot.service');
-const { createServer } = require('./domains/web/web.app');
-const { sendScheduledGif } = require('./domains/scheduler/scheduler.service');
+import 'dotenv/config';
+import cron from 'node-cron';
+import config from './config';
+import { client, registerEvents } from './domains/bot/bot.service';
+import { createServer } from './domains/web/web.app';
+import { sendScheduledGif } from './domains/scheduler/scheduler.service';
 
 const app = createServer(client);
 
 // 애플리케이션 시작
-const start = () => {
+const start = (): void => {
     // 1. 이벤트 리스너 등록
     registerEvents(client);
 
     // 2. 웹 서버 시작
     app.listen(config.web.port, () => {
         console.log(`Web server is running on port ${config.web.port}`);
-    }).on('error', (err) => {
+    }).on('error', (err: Error) => {
         console.error('Web server failed to start:', err);
         process.exit(1);
     });
@@ -41,8 +41,9 @@ const start = () => {
     });
 };
 
+// Check if this file is the entry point
 if (require.main === module) {
     start();
 }
 
-module.exports = { app, client };
+export { app, client };

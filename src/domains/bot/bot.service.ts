@@ -1,5 +1,5 @@
-const { Client } = require('discord.js');
-const config = require('../../config');
+import { Client, Message } from 'discord.js';
+import config from '../../config';
 
 // 디스코드 클라이언트 인스턴스 싱글톤 관리
 const client = new Client({
@@ -8,9 +8,9 @@ const client = new Client({
 
 /**
  * 메시지 처리 핸들러
- * @param {import('discord.js').Message} message 
+ * @param {Message} message 
  */
-const handleMessage = async (message) => {
+export const handleMessage = async (message: Message): Promise<void> => {
     if (message.author.bot) return;
 
     if (message.content.trim() === '!ping') {
@@ -25,14 +25,14 @@ const handleMessage = async (message) => {
 
 /**
  * 봇 이벤트 리스너 등록 (Side Effect 방지)
- * @param {import('discord.js').Client} client 
+ * @param {Client} client 
  */
-const registerEvents = (client) => {
-    client.once('ready', () => {
-        console.log(`Logged in as ${client.user.tag}!`);
+export const registerEvents = (client: Client): void => {
+    client.once('ready', (c) => {
+        console.log(`Logged in as ${c.user.tag}!`);
     });
 
     client.on('messageCreate', handleMessage);
 };
 
-module.exports = { client, handleMessage, registerEvents };
+export { client };

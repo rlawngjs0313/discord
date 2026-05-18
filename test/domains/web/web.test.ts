@@ -1,28 +1,29 @@
-const request = require('supertest');
-const crypto = require('crypto');
-const { createServer } = require('../../../src/domains/web/web.app');
-const config = require('../../../src/config');
+import request from 'supertest';
+import crypto from 'crypto';
+import { Client } from 'discord.js';
+import { createServer } from '../../../src/domains/web/web.app';
+import config from '../../../src/config';
 
 // config 모킹하여 테스트 환경 독립성 확보
 jest.mock('../../../src/config', () => {
   const originalConfig = jest.requireActual('../../../src/config');
   return {
-    ...originalConfig,
+    ...originalConfig.default,
     web: {
-      ...originalConfig.web,
+      ...originalConfig.default.web,
       cookieSecret: 'test-secret-key-for-unit-tests'
     }
   };
 });
 
 describe('Web Server API', () => {
-  let app;
-  let mockClient;
+  let app: any;
+  let mockClient: Client;
 
   /**
    * express에서 사용하는 서명된 쿠키 생성 (s:value.signature)
    */
-  const signCookie = (val, secret) => {
+  const signCookie = (val: string, secret: string) => {
     const signature = crypto
       .createHmac('sha256', secret)
       .update(val)
@@ -33,7 +34,7 @@ describe('Web Server API', () => {
 
   beforeEach(() => {
     jest.spyOn(global, 'fetch');
-    mockClient = { isReady: jest.fn().mockReturnValue(true) };
+    mockClient = { isReady: jest.fn().mockReturnValue(true) } as unknown as Client;
     app = createServer(mockClient);
   });
 
@@ -51,7 +52,11 @@ describe('Web Server API', () => {
     const response = await request(app).get('/invite');
     expect(response.statusCode).toBe(302);
     expect(response.headers.location).toContain('state=');
-    expect(response.headers['set-cookie'][0]).toContain('oauth_state=');
+    const cookies = response.headers['set-cookie'];
+    expect(cookies).toBeDefined();
+    if (cookies) {
+      expect(cookies[0]).toContain('oauth_state=');
+    }
   });
 
   test('GET /oauth/callback should return 403 if state mismatch', async () => {
@@ -65,13 +70,13 @@ describe('Web Server API', () => {
     const signedCookie = signCookie(state, config.web.cookieSecret);
     
     // 1. 토큰 교환 모킹
-    global.fetch.mockResolvedValueOnce({
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
       json: async () => ({ access_token: 'mock_token' }),
     });
 
     // 2. 사용자 정보 조회 모킹
-    global.fetch.mockResolvedValueOnce({
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
       json: async () => ({ username: 'TestUser', discriminator: '1234' }),
     });

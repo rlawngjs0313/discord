@@ -1,4 +1,5 @@
-const { handleMessage } = require('../../../src/domains/bot/bot.service');
+import { Message } from 'discord.js';
+import { handleMessage } from '../../../src/domains/bot/bot.service';
 
 describe('Bot Message Handler', () => {
   test('should reply with "Pong!" and log message when message is "!ping"', async () => {
@@ -8,7 +9,7 @@ describe('Bot Message Handler', () => {
       content: '!ping',
       author: { bot: false },
       reply: mockReply,
-    };
+    } as unknown as Message;
 
     await handleMessage(mockMessage);
 
@@ -23,7 +24,7 @@ describe('Bot Message Handler', () => {
       content: '!ping',
       author: { bot: true },
       reply: mockReply,
-    };
+    } as unknown as Message;
 
     await handleMessage(mockMessage);
 
