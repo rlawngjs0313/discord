@@ -34,14 +34,18 @@ const player = createAudioPlayer({
 const COOKIE_PATH = path.join(process.cwd(), 'youtube-cookies.json');
 
 /**
- * ytdl 에이전트 생성 (쿠키 포함)
+ * ytdl 에이전트 생성 (쿠키 및 다양한 클라이언트 타입 시도)
  */
 const getYoutubeAgent = () => {
     try {
         if (fs.existsSync(COOKIE_PATH)) {
             const cookies = fs.readJSONSync(COOKIE_PATH);
-            console.log('유튜브 쿠키를 불러왔습니다. 에이전트를 생성합니다.');
-            return ytdl.createAgent(cookies);
+            console.log(`유튜브 쿠키 파일을 찾았습니다. (${cookies.length}개의 쿠키)`);
+            const agent = ytdl.createAgent(cookies);
+            console.log('유튜브 에이전트 생성 완료');
+            return agent;
+        } else {
+            console.warn('유튜브 쿠키 파일(youtube-cookies.json)이 존재하지 않습니다.');
         }
     } catch (error) {
         console.error('유튜브 쿠키를 불러오는 중 오류 발생:', error);
@@ -49,11 +53,18 @@ const getYoutubeAgent = () => {
     return undefined;
 };
 
-// 유튜브 요청을 위한 최적화된 옵션
-const YTDL_REQUEST_OPTIONS = {
-    headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-    }
+// 유튜브 요청을 위한 최적화된 옵션 (강력한 우회 시도)
+const YTDL_REQUEST_OPTIONS: any = {
+    filter: 'audioonly',
+    quality: 'highestaudio',
+    highWaterMark: 1 << 25,
+    requestOptions: {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        }
+    },
+    // 안드로이드 클라이언트로 속여서 요청 시도
+    clients: ['ANDROID', 'IOS', 'WEB_CREATOR'],
 };
 
 /**
@@ -127,22 +138,17 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
 
         // 2. 비디오 정보 가져오기
         const agent = getYoutubeAgent();
-        const videoInfo = await ytdl.getInfo(url, { 
+        const ytdlOptions = { 
+            ...YTDL_REQUEST_OPTIONS,
             agent,
-            requestOptions: YTDL_REQUEST_OPTIONS
-        });
+        };
+        const videoInfo = await ytdl.getInfo(url, ytdlOptions);
         
         const { title, thumbnails, ownerChannelName, lengthSeconds } = videoInfo.videoDetails;
         const thumbnail = thumbnails[thumbnails.length - 1]?.url || '';
 
         // 3. 스트림 생성 및 재생
-        const stream = ytdl.downloadFromInfo(videoInfo, {
-            filter: 'audioonly',
-            quality: 'highestaudio',
-            highWaterMark: 1 << 25,
-            agent,
-            requestOptions: YTDL_REQUEST_OPTIONS,
-        });
+        const stream = ytdl.downloadFromInfo(videoInfo, ytdlOptions);
 
         const resource = createAudioResource(stream, {
             inputType: StreamType.Arbitrary,
