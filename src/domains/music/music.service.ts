@@ -34,15 +34,14 @@ const player = createAudioPlayer({
 const COOKIE_PATH = path.join(process.cwd(), 'youtube-cookies.json');
 
 /**
- * play-dl 인증 설정 (쿠키 주입)
+ * play-dl 인증 설정 (초기화 보장)
  */
-const setupYoutubeAuth = async () => {
+export const initYoutubeAuth = async () => {
     try {
         if (fs.existsSync(COOKIE_PATH)) {
             const cookies = fs.readJSONSync(COOKIE_PATH);
-            console.log(`유튜브 쿠키 파일을 찾았습니다. (${cookies.length}개의 쿠키)`);
+            console.log(`[Music] 유튜브 쿠키 파일을 찾았습니다. (${cookies.length}개의 쿠키)`);
             
-            // JSON 쿠키 배열을 문자열 형식으로 변환
             const cookieString = cookies
                 .map((c: any) => `${c.name}=${c.value}`)
                 .join('; ');
@@ -52,17 +51,14 @@ const setupYoutubeAuth = async () => {
                     cookie: cookieString
                 }
             });
-            console.log('play-dl 유튜브 인증 설정 완료');
+            console.log('[Music] play-dl 유튜브 인증 설정 완료');
         } else {
-            console.warn('유튜브 쿠키 파일이 없어 인증 없이 시도합니다.');
+            console.warn('[Music] 유튜브 쿠키 파일이 없습니다. 비로그인 상태로 시도합니다.');
         }
     } catch (error) {
-        console.error('유튜브 인증 설정 중 오류 발생:', error);
+        console.error('[Music] 유튜브 인증 설정 중 오류 발생:', error);
     }
 };
-
-// 초기 실행 시 인증 설정
-setupYoutubeAuth();
 
 /**
  * 유튜브 URL 표준화
@@ -135,21 +131,24 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
         });
 
         // 2. 비디오 정보 가져오기
-        console.log(`비디오 정보 조회 중: ${url}`);
+        console.log(`[Music] 정보 조회 시작: ${url}`);
         const videoInfo = await play.video_info(url);
         const { title, thumbnails, channel, durationRaw } = videoInfo.video_details;
         const thumbnail = thumbnails[thumbnails.length - 1]?.url || '';
         
-        console.log(`비디오 정보 획득 완료: ${title}`);
+        console.log(`[Music] 정보 획득 완료: ${title}`);
 
-        // 3. 스트림 생성 및 재생 (videoInfo를 직접 전달하여 중복 요청 방지)
-        console.log('스트림 생성 시도...');
-        const stream = await play.stream_from_info(videoInfo, {
-            quality: 2
+        // 3. 스트림 생성 및 재생 (클라이언트 변조 추가)
+        console.log('[Music] 스트림 생성 중...');
+        const stream = await play.stream(url, {
+            quality: 2,
+            discordPlayerCompatibility: true,
+            // @ts-ignore
+            htm: true // 차단 우회를 위한 추가 옵션
         });
 
         if (!stream || !stream.stream) {
-            throw new Error('유효한 오디오 스트림을 생성할 수 없습니다.');
+            throw new Error('스트림 데이터를 찾을 수 없습니다.');
         }
 
         const resource = createAudioResource(stream.stream, {
@@ -203,12 +202,12 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
         });
 
     } catch (error: any) {
-        console.error('음악 재생 중 상세 오류:', error);
+        console.error('[Music] 상세 에러 로그:', error);
         if (connection) connection.destroy();
         
         let errorMsg = '음악을 재생하는 중 오류가 발생했습니다.';
         if (error.message.includes('Sign in') || error.message.includes('403') || error.message.includes('format')) {
-            errorMsg = '❌ **유튜브 재생 불가:** 유튜브의 차단 정책이나 유효하지 않은 쿠키 때문에 재생이 막혔습니다. 쿠키를 새로고침한 뒤 다시 시도해 주세요.';
+            errorMsg = '❌ **유튜브 재생 실패:** 유튜브의 강화된 보안 정책(PoToken 등) 때문에 재생이 막혔습니다. 쿠키를 새로고침하거나 다른 영상을 시도해 주세요.';
         }
         
         await message.reply(errorMsg);

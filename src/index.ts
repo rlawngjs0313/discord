@@ -4,11 +4,15 @@ import config from './config';
 import { client, registerEvents } from './domains/bot/bot.service';
 import { createServer } from './domains/web/web.app';
 import { sendScheduledGif } from './domains/scheduler/scheduler.service';
+import { initYoutubeAuth } from './domains/music/music.service';
 
 const app = createServer(client);
 
 // 애플리케이션 시작
-const start = (): void => {
+const start = async (): Promise<void> => {
+    // 0. 유튜브 인증 초기화 (쿠키 로드 완료 대기)
+    await initYoutubeAuth();
+
     // 1. 이벤트 리스너 등록
     registerEvents(client);
 
