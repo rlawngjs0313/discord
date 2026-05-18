@@ -5,7 +5,8 @@ import {
     AudioPlayerStatus, 
     VoiceConnectionStatus,
     getVoiceConnection,
-    NoSubscriberBehavior
+    NoSubscriberBehavior,
+    VoiceConnection
 } from '@discordjs/voice';
 import { Message, GuildMember } from 'discord.js';
 import play from 'play-dl';
@@ -53,9 +54,11 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
         return;
     }
 
+    let connection: VoiceConnection | undefined;
+
     try {
         // 음성 채널 연결
-        const connection = joinVoiceChannel({
+        connection = joinVoiceChannel({
             channelId: voiceChannel.id,
             guildId: voiceChannel.guild.id,
             adapterCreator: voiceChannel.guild.voiceAdapterCreator,
@@ -67,6 +70,10 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
 
         connection.on('error', error => {
             console.error(`음성 연결 오류: ${error.message}`);
+            if (connection) {
+                connection.destroy();
+                connection = undefined;
+            }
         });
 
         // 유튜브 스트림 가져오기
@@ -81,6 +88,12 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
         await message.reply(`🎵 **재생 시작:** ${url}`);
     } catch (error) {
         console.error('음악 재생 중 오류 발생:', error);
+        
+        // 재생 실패 시 연결 해제
+        if (connection) {
+            connection.destroy();
+        }
+        
         await message.reply('음악을 재생하는 중 오류가 발생했습니다. 유효한 유튜브 링크인지 확인해주세요.');
     }
 };
