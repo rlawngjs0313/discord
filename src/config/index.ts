@@ -24,6 +24,14 @@ export interface Config {
         cronSchedule: string;
         timezone: string;
     };
+    lavalink: {
+        nodes: {
+            host: string;
+            port: number;
+            password: string;
+            secure?: boolean;
+        }[];
+    };
     api: {
         timeout: number;
     };
@@ -59,6 +67,16 @@ const config: Config = {
         gifUrl: process.env.SCHEDULER_GIF_URL || 'https://giphy.com/gifs/0357-1557-15-57-MethllSyrDoPZ13awK',
         cronSchedule: process.env.SCHEDULER_CRON || '57 15 * * *',
         timezone: process.env.SCHEDULER_TIMEZONE || 'Asia/Seoul'
+    },
+    lavalink: {
+        nodes: [
+            {
+                host: process.env.LAVALINK_HOST || 'localhost',
+                port: parseInt(process.env.LAVALINK_PORT || '2333'),
+                password: process.env.LAVALINK_PASSWORD || 'youshallnotpass',
+                secure: process.env.LAVALINK_SECURE === 'true',
+            }
+        ]
     },
     api: {
         timeout: 5000

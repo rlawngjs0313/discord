@@ -1,14 +1,7 @@
 import { 
-    joinVoiceChannel, 
-    createAudioPlayer, 
-    createAudioResource, 
-    AudioPlayerStatus, 
-    VoiceConnectionStatus,
-    getVoiceConnection,
-    NoSubscriberBehavior,
-    VoiceConnection,
-    StreamType
-} from '@discordjs/voice';
+    LavalinkManager, 
+    LavalinkNodeOptions
+} from 'lavalink-client';
 import { 
     Message, 
     GuildMember, 
@@ -17,47 +10,46 @@ import {
     ButtonBuilder, 
     ButtonStyle, 
     ComponentType,
-    ButtonInteraction
+    ButtonInteraction,
+    Client
 } from 'discord.js';
-import play from 'play-dl';
-import fs from 'fs-extra';
-import path from 'path';
+import config from '../../config';
 
-// 오디오 플레이어 관리
-const player = createAudioPlayer({
-    behaviors: {
-        noSubscriber: NoSubscriberBehavior.Play
-    }
-});
-
-// 유튜브 쿠키 설정 경로
-const COOKIE_PATH = path.join(process.cwd(), 'youtube-cookies.json');
+let lavalink: LavalinkManager;
 
 /**
- * play-dl 인증 설정 (초기화 보장)
+ * Lavalink 매니저 초기화
  */
-export const initYoutubeAuth = async () => {
-    try {
-        if (fs.existsSync(COOKIE_PATH)) {
-            const cookies = fs.readJSONSync(COOKIE_PATH);
-            console.log(`[Music] 유튜브 쿠키 파일을 찾았습니다. (${cookies.length}개의 쿠키)`);
-            
-            const cookieString = cookies
-                .map((c: any) => `${c.name}=${c.value}`)
-                .join('; ');
-            
-            await play.setToken({
-                youtube: {
-                    cookie: cookieString
-                }
-            });
-            console.log('[Music] play-dl 유튜브 인증 설정 완료');
-        } else {
-            console.warn('[Music] 유튜브 쿠키 파일이 없습니다. 비로그인 상태로 시도합니다.');
+export const initLavalink = (client: Client) => {
+    // config.lavalink.nodes를 LavalinkNodeOptions 형식에 맞게 매핑
+    const nodes: LavalinkNodeOptions[] = config.lavalink.nodes.map(node => ({
+        host: node.host,
+        port: node.port,
+        authorization: node.password,
+        secure: node.secure
+    }));
+
+    lavalink = new LavalinkManager({
+        nodes: nodes,
+        sendToShard: (guildId, payload) => {
+            const guild = client.guilds.cache.get(guildId);
+            if (guild) guild.shard.send(payload);
+        },
+        client: {
+            id: config.discord.clientId!,
+            username: client.user?.username || 'Discord Bot',
         }
-    } catch (error) {
-        console.error('[Music] 유튜브 인증 설정 중 오류 발생:', error);
-    }
+    });
+
+    lavalink.nodeManager.on('connect', (node) => {
+        console.log(`[Music] Lavalink 노드 연결 완료: ${node.options.host}`);
+    });
+
+    lavalink.nodeManager.on('error', (node, error) => {
+        console.error(`[Music] Lavalink 노드(${node.options.host}) 에러:`, error.message);
+    });
+
+    return lavalink;
 };
 
 /**
@@ -78,7 +70,7 @@ const normalizeYoutubeUrl = (url: string): string => {
 };
 
 /**
- * 음악 플레이어 컨트롤러 버튼 생성
+ * 컨트롤러 버튼 생성
  */
 const createControllerButtons = (isPaused: boolean = false) => {
     return new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -94,24 +86,16 @@ const createControllerButtons = (isPaused: boolean = false) => {
 };
 
 /**
- * 음악 재생 명령어 핸들러
+ * 음악 재생 명령어 핸들러 (Lavalink 버전)
  */
 export const handlePlayCommand = async (message: Message, args: string[]): Promise<void> => {
-    let rawUrl = args[0];
-
+    const rawUrl = args[0];
     if (!rawUrl) {
-        await message.reply('유튜브 링크를 입력해주세요! (예: !재생 <URL>)');
+        await message.reply('유튜브 링크를 입력해주세요!');
         return;
     }
 
     const url = normalizeYoutubeUrl(rawUrl);
-    
-    const validation = await play.validate(url);
-    if (!validation || (validation !== 'yt_video' && validation !== 'yt_playlist')) {
-        await message.reply('유효한 유튜브 링크가 아닙니다.');
-        return;
-    }
-
     const member = message.member as GuildMember;
     const voiceChannel = member.voice.channel;
 
@@ -120,110 +104,95 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
         return;
     }
 
-    let connection: VoiceConnection | undefined;
-
     try {
-        // 1. 음성 채널 연결
-        connection = joinVoiceChannel({
-            channelId: voiceChannel.id,
-            guildId: voiceChannel.guild.id,
-            adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-        });
-
-        // 2. 비디오 정보 가져오기
-        console.log(`[Music] 정보 조회 시작: ${url}`);
-        const videoInfo = await play.video_info(url);
-        const { title, thumbnails, channel, durationRaw } = videoInfo.video_details;
-        const thumbnail = thumbnails[thumbnails.length - 1]?.url || '';
-        
-        console.log(`[Music] 정보 획득 완료: ${title}`);
-
-        // 3. 스트림 생성 및 재생 (클라이언트 변조 추가)
-        console.log('[Music] 스트림 생성 중...');
-        const stream = await play.stream(url, {
-            quality: 2,
-            discordPlayerCompatibility: true,
-            // @ts-ignore
-            htm: true // 차단 우회를 위한 추가 옵션
-        });
-
-        if (!stream || !stream.stream) {
-            throw new Error('스트림 데이터를 찾을 수 없습니다.');
+        // 1. 플레이어 생성 또는 가져오기
+        let player = lavalink.players.get(message.guildId!);
+        if (!player) {
+            player = lavalink.createPlayer({
+                guildId: message.guildId!,
+                voiceChannelId: voiceChannel.id,
+                textChannelId: message.channelId,
+                selfDeaf: true,
+            });
         }
 
-        const resource = createAudioResource(stream.stream, {
-            inputType: stream.type,
-        });
+        // 2. 음성 채널 연결
+        if (!player.connected) await player.connect();
 
-        player.play(resource);
-        connection.subscribe(player);
+        // 3. 트랙 검색
+        const res = await player.search({ query: url }, message.author);
 
-        // 4. 임베드 UI 전송
+        if (res.loadType === 'error') {
+            throw new Error('검색 중 오류가 발생했습니다.');
+        }
+        if (res.loadType === 'empty') {
+            await message.reply('결과를 찾을 수 없습니다.');
+            return;
+        }
+
+        const track = res.tracks[0];
+        if (!track) return;
+
+        // 4. 재생
+        await player.queue.add(track);
+        if (!player.playing && !player.paused) await player.play();
+
+        // 5. 임베드 UI 전송
+        const duration = track.info.duration || 0;
         const embed = new EmbedBuilder()
-            .setTitle(title || '제목 없음')
-            .setURL(url)
-            .setAuthor({ name: channel?.name || 'YouTube' })
-            .setThumbnail(thumbnail)
+            .setTitle(track.info.title || '제목 없음')
+            .setURL(track.info.uri || null)
+            .setAuthor({ name: track.info.author || 'YouTube' })
+            .setThumbnail(track.info.artworkUrl || null)
             .addFields(
-                { name: '길이', value: durationRaw || '알 수 없음', inline: true },
+                { name: '길이', value: new Date(duration).toISOString().substr(14, 5), inline: true },
                 { name: '요청자', value: message.author.username, inline: true }
             )
-            .setColor(0xff0000)
+            .setColor(0x5865F2)
             .setTimestamp();
 
-        const row = createControllerButtons();
-        
-        const channelObj = message.channel as any;
-        const response = await channelObj.send({
+        const response = await (message.channel as any).send({
             embeds: [embed],
-            components: [row]
+            components: [createControllerButtons()]
         });
 
+        // 6. 인터랙션 콜렉터
         const collector = response.createMessageComponentCollector({
             componentType: ComponentType.Button,
             time: 3600000 
         });
 
         collector.on('collect', async (interaction: ButtonInteraction) => {
+            const p = lavalink.players.get(interaction.guildId!);
+            if (!p) return;
+
             if (interaction.customId === 'music_pause_resume') {
-                if (player.state.status === AudioPlayerStatus.Paused) {
-                    player.unpause();
+                if (p.paused) {
+                    await p.resume();
                     await interaction.update({ components: [createControllerButtons(false)] });
                 } else {
-                    player.pause();
+                    await p.pause();
                     await interaction.update({ components: [createControllerButtons(true)] });
                 }
             } else if (interaction.customId === 'music_stop') {
-                player.stop();
-                connection?.destroy();
+                await p.destroy();
                 await interaction.update({ content: '⏹ 음악 재생을 종료했습니다.', embeds: [], components: [] });
                 collector.stop();
             }
         });
 
     } catch (error: any) {
-        console.error('[Music] 상세 에러 로그:', error);
-        if (connection) connection.destroy();
-        
-        let errorMsg = '음악을 재생하는 중 오류가 발생했습니다.';
-        if (error.message.includes('Sign in') || error.message.includes('403') || error.message.includes('format')) {
-            errorMsg = '❌ **유튜브 재생 실패:** 유튜브의 강화된 보안 정책(PoToken 등) 때문에 재생이 막혔습니다. 쿠키를 새로고침하거나 다른 영상을 시도해 주세요.';
-        }
-        
-        await message.reply(errorMsg);
+        console.error('[Music] Lavalink 재생 에러:', error);
+        await message.reply('음악 재생 중 오류가 발생했습니다.');
     }
 };
 
-/**
- * 단순 정지 명령어
- */
 export const handleStopCommand = async (message: Message): Promise<void> => {
-    const connection = getVoiceConnection(message.guildId!);
-    if (connection) {
-        player.stop();
-        connection.destroy();
-        await message.reply('음악을 정지하고 채널에서 나갑니다.');
+    const player = lavalink.players.get(message.guildId!);
+    if (player) {
+        await player.destroy();
+        await message.reply('음악을 정지했습니다.');
     } else {
-        await message.reply('현재 재생 중인 음악이 없습니다.');
+        await message.reply('재생 중인 음악이 없습니다.');
     }
 };
