@@ -19,7 +19,7 @@ import {
     ComponentType,
     ButtonInteraction
 } from 'discord.js';
-import ytdl from '@distube/ytdl-core';
+import play from 'play-dl';
 import fs from 'fs-extra';
 import path from 'path';
 
@@ -34,38 +34,35 @@ const player = createAudioPlayer({
 const COOKIE_PATH = path.join(process.cwd(), 'youtube-cookies.json');
 
 /**
- * ytdl 에이전트 생성 (쿠키 및 다양한 클라이언트 타입 시도)
+ * play-dl 인증 설정 (쿠키 주입)
  */
-const getYoutubeAgent = () => {
+const setupYoutubeAuth = async () => {
     try {
         if (fs.existsSync(COOKIE_PATH)) {
             const cookies = fs.readJSONSync(COOKIE_PATH);
             console.log(`유튜브 쿠키 파일을 찾았습니다. (${cookies.length}개의 쿠키)`);
-            const agent = ytdl.createAgent(cookies);
-            console.log('유튜브 에이전트 생성 완료');
-            return agent;
+            
+            // JSON 쿠키 배열을 문자열 형식으로 변환 (name=value; name2=value2)
+            const cookieString = cookies
+                .map((c: any) => `${c.name}=${c.value}`)
+                .join('; ');
+            
+            await play.setToken({
+                youtube: {
+                    cookie: cookieString
+                }
+            });
+            console.log('play-dl 유튜브 인증 설정 완료');
         } else {
-            console.warn('유튜브 쿠키 파일(youtube-cookies.json)이 존재하지 않습니다.');
+            console.warn('유튜브 쿠키 파일이 없어 인증 없이 시도합니다.');
         }
     } catch (error) {
-        console.error('유튜브 쿠키를 불러오는 중 오류 발생:', error);
+        console.error('유튜브 인증 설정 중 오류 발생:', error);
     }
-    return undefined;
 };
 
-// 유튜브 요청을 위한 최적화된 옵션 (강력한 우회 시도)
-const YTDL_REQUEST_OPTIONS: any = {
-    filter: 'audioonly',
-    quality: 'highestaudio',
-    highWaterMark: 1 << 25,
-    requestOptions: {
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        }
-    },
-    // 안드로이드 클라이언트로 속여서 요청 시도
-    clients: ['ANDROID', 'IOS', 'WEB_CREATOR'],
-};
+// 초기 실행 시 인증 설정
+setupYoutubeAuth();
 
 /**
  * 유튜브 URL 표준화
@@ -113,7 +110,9 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
 
     const url = normalizeYoutubeUrl(rawUrl);
     
-    if (!ytdl.validateURL(url)) {
+    // play-dl을 이용한 유효성 검사
+    const validation = await play.validate(url);
+    if (!validation || (validation !== 'yt_video' && validation !== 'yt_playlist')) {
         await message.reply('유효한 유튜브 링크가 아닙니다.');
         return;
     }
@@ -137,21 +136,18 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
         });
 
         // 2. 비디오 정보 가져오기
-        const agent = getYoutubeAgent();
-        const ytdlOptions = { 
-            ...YTDL_REQUEST_OPTIONS,
-            agent,
-        };
-        const videoInfo = await ytdl.getInfo(url, ytdlOptions);
-        
-        const { title, thumbnails, ownerChannelName, lengthSeconds } = videoInfo.videoDetails;
+        const videoInfo = await play.video_info(url);
+        const { title, thumbnails, channel, durationRaw } = videoInfo.video_details;
         const thumbnail = thumbnails[thumbnails.length - 1]?.url || '';
 
         // 3. 스트림 생성 및 재생
-        const stream = ytdl.downloadFromInfo(videoInfo, ytdlOptions);
+        const stream = await play.stream(url, {
+            quality: 2,
+            discordPlayerCompatibility: true
+        });
 
-        const resource = createAudioResource(stream, {
-            inputType: StreamType.Arbitrary,
+        const resource = createAudioResource(stream.stream, {
+            inputType: stream.type,
         });
 
         player.play(resource);
@@ -159,12 +155,12 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
 
         // 4. 임베드 UI 전송
         const embed = new EmbedBuilder()
-            .setTitle(title)
+            .setTitle(title || '제목 없음')
             .setURL(url)
-            .setAuthor({ name: ownerChannelName || 'YouTube' })
+            .setAuthor({ name: channel?.name || 'YouTube' })
             .setThumbnail(thumbnail)
             .addFields(
-                { name: '길이', value: `${Math.floor(parseInt(lengthSeconds) / 60)}분 ${parseInt(lengthSeconds) % 60}초`, inline: true },
+                { name: '길이', value: durationRaw || '알 수 없음', inline: true },
                 { name: '요청자', value: message.author.username, inline: true }
             )
             .setColor(0xff0000)
@@ -172,8 +168,8 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
 
         const row = createControllerButtons();
         
-        const channel = message.channel as any;
-        const response = await channel.send({
+        const channelObj = message.channel as any;
+        const response = await channelObj.send({
             embeds: [embed],
             components: [row]
         });
@@ -206,8 +202,8 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
         if (connection) connection.destroy();
         
         let errorMsg = '음악을 재생하는 중 오류가 발생했습니다.';
-        if (error.message.includes('formats') || error.message.includes('Sign in')) {
-            errorMsg = '❌ **유튜브 차단 발생:** 유효한 쿠키(Cookies) 설정이 필요합니다.\n`youtube-cookies.json` 파일에 최신 쿠키를 등록해주세요.';
+        if (error.message.includes('Sign in') || error.message.includes('403') || error.message.includes('format')) {
+            errorMsg = '❌ **유튜브 재생 불가:** 유튜브의 차단 정책이나 유효하지 않은 쿠키 때문에 재생이 막혔습니다.';
         }
         
         await message.reply(errorMsg);
