@@ -12,7 +12,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/views ./views
+COPY --from=builder /app/src/views ./views
 
 # 포트 설정
 EXPOSE 8000
