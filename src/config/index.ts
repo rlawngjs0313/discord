@@ -39,6 +39,7 @@ const config: Config = {
             GatewayIntentBits.Guilds,
             GatewayIntentBits.GuildMessages,
             GatewayIntentBits.MessageContent,
+            GatewayIntentBits.GuildVoiceStates,
         ],
         endpoints: {
             token: 'https://discord.com/api/v10/oauth2/token',
