@@ -39,6 +39,13 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
         return;
     }
 
+    // URL 유효성 검사
+    const validation = await play.validate(url);
+    if (!validation || (validation !== 'yt_video' && validation !== 'yt_playlist')) {
+        await message.reply('유효한 유튜브 링크가 아닙니다.');
+        return;
+    }
+
     const member = message.member as GuildMember;
     const voiceChannel = member.voice.channel;
 
@@ -76,8 +83,10 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
             }
         });
 
-        // 유튜브 스트림 가져오기
-        const stream = await play.stream(url);
+        // 유튜브 정보 가져오기 및 스트림 생성
+        const videoInfo = await play.video_info(url);
+        const stream = await play.stream_from_info(videoInfo);
+        
         const resource = createAudioResource(stream.stream, {
             inputType: stream.type
         });
@@ -85,7 +94,7 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
         player.play(resource);
         connection.subscribe(player);
 
-        await message.reply(`🎵 **재생 시작:** ${url}`);
+        await message.reply(`🎵 **재생 시작:** ${videoInfo.video_details.title}`);
     } catch (error) {
         console.error('음악 재생 중 오류 발생:', error);
         
@@ -94,7 +103,7 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
             connection.destroy();
         }
         
-        await message.reply('음악을 재생하는 중 오류가 발생했습니다. 유효한 유튜브 링크인지 확인해주세요.');
+        await message.reply('음악을 재생하는 중 오류가 발생했습니다. 링크가 올바른지 다시 확인해주세요.');
     }
 };
 

@@ -27,7 +27,8 @@ export const handleMessage = async (message: Message): Promise<void> => {
 
     // 노래 재생 명령어 처리
     if (content.startsWith('!재생')) {
-        const args = content.split(' ').slice(1);
+        // 공백이 여러 개일 경우를 대비해 정규표현식 사용
+        const args = content.split(/\s+/).slice(1);
         await handlePlayCommand(message, args);
     }
 
