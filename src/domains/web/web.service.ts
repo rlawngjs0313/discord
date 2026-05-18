@@ -1,6 +1,14 @@
 import crypto from 'crypto';
 import config from '../../config';
 
+export interface DiscordUser {
+    id: string;
+    username: string;
+    discriminator: string;
+    avatar: string | null;
+    [key: string]: any;
+}
+
 /**
  * OAuth2 관련 비즈니스 로직
  */
@@ -23,7 +31,7 @@ export const oauthService = {
     /**
      * Discord OAuth2 토큰 교환 및 사용자 정보 조회
      */
-    handleCallback: async (code: string): Promise<any> => {
+    handleCallback: async (code: string): Promise<DiscordUser> => {
         // 1. 토큰 교환
         const tokenResponse = await fetch(config.discord.endpoints.token, {
             method: 'POST',
@@ -62,6 +70,6 @@ export const oauthService = {
             throw new Error(`User info fetch failed: ${errorMsg}`);
         }
 
-        return userData;
+        return userData as DiscordUser;
     }
 };
