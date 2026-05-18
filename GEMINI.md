@@ -135,7 +135,8 @@ gcloud compute instances create-with-container INSTANCE_NAME \
 
 #### Phase 1: Preparation (Setup)
 0. **버전 체크:** 세션 시작 시 GitHub Repository의 히스토리(태그 및 커밋 메시지)를 분석하여 현재 가장 최신 배포 버전을 확인하고 기록합니다.
-1. **이슈 생성:** 반드시 gh issue create --template "파일명"을 사용하여 성격에 맞는 템플릿으로 이슈를 생성합니다. (예: gh issue create --template "✨--feat--기능-추가.md")
+1. **이슈 생성:** 반드시 `gh issue create --template "파일명"`을 사용하여 성격에 맞는 템플릿으로 이슈를 생성합니다. (예: `gh issue create --template "✨--feat--기능-추가.md"`)
+    - **주의:** 만약 CLI에서 템플릿 선택이 모호할 경우, `.github/ISSUE_TEMPLATE/` 내의 파일명을 정확히 지정합니다.
 2. **이슈 번호 확인:** 생성된 이슈 번호 추출 및 기억.
 3. **브랜치 생성:** develop 브랜치 베이스로 Feat/#번호 또는 Refactor/#번호 브랜치 생성.
 4. **체크아웃:** 생성된 브랜치로 전환.
@@ -144,11 +145,12 @@ gcloud compute instances create-with-container INSTANCE_NAME \
 #### Phase 2: Finalization (Cleanup & Review)
 1. **테스트 코드 작성:** 비즈니스 로직 및 예외 케이스 검증.
 2. **작업 단위 커밋:** 상기 커밋 컨벤션을 준수하여 커밋.
-3. **테스트 통과 확인:** npm test를 통한 모든 테스트 통과 확인.
+3. **테스트 통과 확인:** `npm test`를 통한 모든 테스트 통과 확인.
 4. **브랜치 확인 및 푸시:** 올바른 브랜치인지 확인 후 원격 저장소에 푸시.
-5. **PR 생성:** 반드시 .github/pull_request_template.md의 내용을 읽어 해당 형식을 갖추어 develop 브랜치로 PR을 생성합니다.
-    - **본문:** 반드시 Closes #이슈번호 키워드를 포함하여 머지 시 이슈가 자동으로 닫히도록 합니다.
-    - **주의:** PR 생성 후 **자동으로 머지하지 않습니다.** 생성된 PR 링크를 사용자에게 전달하고 대기합니다.
+5. **PR 생성:** 반드시 `gh pr create --template "pull_request_template.md"` (또는 해당 프로젝트의 PR 템플릿 경로)를 사용하여 `.github/pull_request_template.md`의 형식을 갖추어 develop 브랜치로 PR을 생성합니다.
+    - **본문:** 반드시 `Closes #이슈번호` 키워드를 포함하여 머지 시 이슈가 자동으로 닫히도록 합니다.
+    - **주의:** PR 생성 시 템플릿 내용이 자동으로 채워지지 않는다면, `cat .github/pull_request_template.md`로 내용을 읽어 `--body` 파라미터에 직접 포함시킵니다.
+    - **자동 머지 금지:** PR 생성 후 자동으로 머지하지 않습니다. 생성된 PR 링크를 사용자에게 전달하고 대기합니다.
 6. **PR 리뷰 대응:** PR 리뷰가 등록되면 다음 단계를 따릅니다.
     - **리뷰 분석:** 어떤 점이 문제점이고 이를 해결하기 위한 최선의 방법을 모색합니다.
     - **실제 적용 여부 판단:** 지적된 사항이 반드시 반영되어야 하는 로직/스타일 오류인지, 혹은 프로젝트 방향성에 따라 무시하거나 토론이 필요한 사항인지 판단합니다.

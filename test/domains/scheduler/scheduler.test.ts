@@ -1,4 +1,5 @@
-const { sendScheduledGif } = require('../../../src/domains/scheduler/scheduler.service');
+import { Client, TextChannel } from 'discord.js';
+import { sendScheduledGif } from '../../../src/domains/scheduler/scheduler.service';
 
 describe('Scheduler Service', () => {
   test('sendScheduledGif should find channel by ID and send GIF with logs', async () => {
@@ -7,12 +8,12 @@ describe('Scheduler Service', () => {
     const mockChannel = { 
       isTextBased: () => true,
       send: mockSend 
-    };
+    } as unknown as TextChannel;
     const mockClient = {
       channels: {
         fetch: jest.fn().mockResolvedValue(mockChannel)
       },
-    };
+    } as unknown as Client;
 
     await sendScheduledGif(mockClient, { channelId: '123', gifUrl: 'http://mock.url' });
 
@@ -29,14 +30,14 @@ describe('Scheduler Service', () => {
       name: '깡-통', 
       isTextBased: () => true,
       send: mockSend 
-    };
+    } as unknown as TextChannel;
     const mockClient = {
       channels: {
         cache: {
             find: jest.fn().mockReturnValue(mockChannel)
         }
       },
-    };
+    } as unknown as Client;
 
     await sendScheduledGif(mockClient, { channelName: '깡-통', gifUrl: 'http://mock.url' });
 
@@ -49,7 +50,7 @@ describe('Scheduler Service', () => {
       channels: {
         fetch: jest.fn().mockResolvedValue(null)
       },
-    };
+    } as unknown as Client;
 
     await sendScheduledGif(mockClient, { channelId: '999', gifUrl: 'http://mock.url' });
 
