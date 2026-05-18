@@ -8,7 +8,7 @@ import {
     NoSubscriberBehavior,
     VoiceConnection
 } from '@discordjs/voice';
-import { Message, GuildMember, GuildTextBasedChannel } from 'discord.js';
+import { Message, GuildMember } from 'discord.js';
 import play from 'play-dl';
 
 // 오디오 플레이어 싱글톤 관리
@@ -107,9 +107,15 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
             }
         });
 
-        // 유튜브 정보 가져오기 및 스트림 생성
+        // 유튜브 정보 가져오기 (로그용)
         const videoInfo = await play.video_info(url);
-        const stream = await play.stream_from_info(videoInfo);
+        console.log(`재생 시도 중: ${videoInfo.video_details.title}`);
+
+        // 스트림 생성 (가장 안정적인 play.stream 사용)
+        const stream = await play.stream(url, {
+            quality: 2, // 높은 품질 우선
+            discordPlayerCompatibility: true // 디스코드 호환성 모드 활성화
+        });
         
         const resource = createAudioResource(stream.stream, {
             inputType: stream.type
@@ -119,7 +125,7 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
         connection.subscribe(player);
 
         await message.reply(`🎵 **재생 시작:** ${videoInfo.video_details.title}`);
-    } catch (error) {
+    } catch (error: any) {
         console.error('음악 재생 중 오류 발생:', error);
         
         // 재생 실패 시 연결 해제
@@ -127,7 +133,11 @@ export const handlePlayCommand = async (message: Message, args: string[]): Promi
             connection.destroy();
         }
         
-        await message.reply('음악을 재생하는 중 오류가 발생했습니다. 링크가 올바른지 다시 확인해주세요.');
+        const errorMsg = error.message.includes('Sign in') 
+            ? '유튜브에서 봇을 차단했습니다. 쿠키 설정이 필요할 수 있습니다.' 
+            : '음악을 재생하는 중 오류가 발생했습니다. 링크가 올바른지 다시 확인해주세요.';
+            
+        await message.reply(errorMsg);
     }
 };
 
