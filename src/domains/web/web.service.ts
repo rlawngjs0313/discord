@@ -1,18 +1,18 @@
-const crypto = require('crypto');
-const config = require('../../config');
+import crypto from 'crypto';
+import config from '../../config';
 
 /**
  * OAuth2 관련 비즈니스 로직
  */
-const oauthService = {
+export const oauthService = {
     /**
      * 보안 state 생성 및 인증 URL 반환
      */
-    generateInviteContext: () => {
+    generateInviteContext: (): { state: string; url: string } => {
         const state = crypto.randomBytes(16).toString('hex');
         const url = new URL(config.discord.endpoints.authorize);
-        url.searchParams.set('client_id', config.discord.clientId);
-        url.searchParams.set('redirect_uri', config.discord.redirectUri);
+        url.searchParams.set('client_id', config.discord.clientId as string);
+        url.searchParams.set('redirect_uri', config.discord.redirectUri as string);
         url.searchParams.set('response_type', 'code');
         url.searchParams.set('scope', 'identify bot applications.commands');
         url.searchParams.set('state', state);
@@ -23,16 +23,16 @@ const oauthService = {
     /**
      * Discord OAuth2 토큰 교환 및 사용자 정보 조회
      */
-    handleCallback: async (code) => {
+    handleCallback: async (code: string): Promise<any> => {
         // 1. 토큰 교환
         const tokenResponse = await fetch(config.discord.endpoints.token, {
             method: 'POST',
             body: new URLSearchParams({
-                client_id: config.discord.clientId,
-                client_secret: config.discord.clientSecret,
+                client_id: config.discord.clientId as string,
+                client_secret: config.discord.clientSecret as string,
                 grant_type: 'authorization_code',
                 code: code,
-                redirect_uri: config.discord.redirectUri,
+                redirect_uri: config.discord.redirectUri as string,
             }),
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -65,5 +65,3 @@ const oauthService = {
         return userData;
     }
 };
-
-module.exports = { oauthService };

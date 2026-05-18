@@ -1,12 +1,17 @@
+import { Client, TextChannel } from 'discord.js';
+
+export interface ScheduledGifOptions {
+    channelId?: string;
+    channelName?: string;
+    gifUrl: string;
+}
+
 /**
  * 스케줄된 GIF 전송 로직
- * @param {import('discord.js').Client} client 
- * @param {Object} options 
- * @param {string} [options.channelId]
- * @param {string} [options.channelName]
- * @param {string} options.gifUrl 
+ * @param {Client} client 
+ * @param {ScheduledGifOptions} options 
  */
-const sendScheduledGif = async (client, options) => {
+export const sendScheduledGif = async (client: Client, options: ScheduledGifOptions): Promise<void> => {
     const { channelId, channelName, gifUrl } = options;
     console.log(`스케줄러 동작: 움짤 전송 시도 (${channelId ? 'ID ' + channelId : '채널명 ' + channelName})`);
 
@@ -19,11 +24,11 @@ const sendScheduledGif = async (client, options) => {
         } 
         // 2. ID가 없다면 이름으로 캐시에서 검색 (멀티 서버 고려 X, 이름 중복 위험 있음)
         else if (channelName) {
-            channel = client.channels.cache.find(c => c.name === channelName && c.isTextBased());
+            channel = client.channels.cache.find(c => (c as any).name === channelName && c.isTextBased());
         }
 
         if (channel && channel.isTextBased()) {
-            await channel.send(gifUrl);
+            await (channel as TextChannel).send(gifUrl);
             console.log('스케줄러 동작: 움짤 전송 완료!');
         } else {
             console.error(`채널을 찾을 수 없거나 메시지 전송이 불가능합니다: ${channelId || channelName}`);
@@ -32,5 +37,3 @@ const sendScheduledGif = async (client, options) => {
         console.error('스케줄된 메시지 전송 중 오류 발생:', error);
     }
 };
-
-module.exports = { sendScheduledGif };

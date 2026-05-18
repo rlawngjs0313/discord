@@ -1,12 +1,13 @@
-const express = require('express');
-const { oauthService } = require('./web.service');
+import express, { Request, Response, Router } from 'express';
+import { Client } from 'discord.js';
+import { oauthService } from './web.service';
 
-const router = express.Router();
+const router: Router = express.Router();
 
 /**
  * 봇 초대 링크 생성 (state 포함)
  */
-router.get('/invite', (req, res) => {
+router.get('/invite', (req: Request, res: Response) => {
     const { state, url } = oauthService.generateInviteContext();
     
     // CSRF 방지를 위해 state를 보안 쿠키에 저장 (15분 만료, 서명 활성화)
@@ -23,8 +24,9 @@ router.get('/invite', (req, res) => {
 /**
  * OAuth2 콜백 핸들러 (state 검증 포함)
  */
-router.get('/oauth/callback', async (req, res) => {
-    const { code, state } = req.query;
+router.get('/oauth/callback', async (req: Request, res: Response) => {
+    const code = req.query.code as string;
+    const state = req.query.state as string;
     const savedState = req.signedCookies.oauth_state;
 
     // 1. State 검증 (CSRF 방어)
@@ -48,7 +50,7 @@ router.get('/oauth/callback', async (req, res) => {
             username: userData.username,
             discriminator: userData.discriminator
         });
-    } catch (error) {
+    } catch (error: any) {
         if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
             console.error('디스코드 API 호출 타임아웃 또는 중단 발생');
             return res.status(504).send('인증 서비스 응답 시간이 초과되었습니다.');
@@ -61,13 +63,13 @@ router.get('/oauth/callback', async (req, res) => {
 /**
  * 헬스체크 (봇 상태 포함)
  */
-const createHealthRouter = (client) => {
+export const createHealthRouter = (client: Client): Router => {
     const healthRouter = express.Router();
-    healthRouter.get('/', (req, res) => {
+    healthRouter.get('/', (req: Request, res: Response) => {
         const status = client.isReady() ? 'Online' : 'Starting';
         res.render('index', { status });
     });
     return healthRouter;
 };
 
-module.exports = { oauthRouter: router, createHealthRouter };
+export { router as oauthRouter };

@@ -1,6 +1,35 @@
-const { GatewayIntentBits } = require('discord.js');
+import { GatewayIntentBits } from 'discord.js';
 
-module.exports = {
+export interface Config {
+    discord: {
+        token: string | undefined;
+        clientId: string | undefined;
+        clientSecret: string | undefined;
+        redirectUri: string | undefined;
+        intents: GatewayIntentBits[];
+        endpoints: {
+            token: string;
+            userMe: string;
+            authorize: string;
+        };
+    };
+    web: {
+        port: number | string;
+        cookieSecret: string;
+    };
+    scheduler: {
+        channelId: string | undefined;
+        channelName: string;
+        gifUrl: string;
+        cronSchedule: string;
+        timezone: string;
+    };
+    api: {
+        timeout: number;
+    };
+}
+
+const config: Config = {
     discord: {
         token: process.env.DISCORD_TOKEN,
         clientId: process.env.DISCORD_CLIENT_ID,
@@ -34,3 +63,5 @@ module.exports = {
         timeout: 5000
     }
 };
+
+export default config;
