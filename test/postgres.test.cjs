@@ -10,7 +10,7 @@ const { createDatabase } = require('../dist/database/database');
 const { getTransfers, getDetail, createSettlement, editSettlement, cancelSettlement } = require('../dist/domains/settlement/settlements');
 const { saveAccount, deleteAccount } = require('../dist/domains/account/accounts');
 const { storeReply, replyLifetime, tokenCipher } = require('../dist/domains/replies/store');
-const { replyTasks } = require('../dist/domains/replies/worker');
+const { replyTasks, replyWorkerLogger } = require('../dist/domains/replies/worker');
 const { commandHandler } = require('../dist/domains/bot/commands');
 
 const connectionString = process.env.TEST_DATABASE_URL;
@@ -136,7 +136,7 @@ if (!connectionString) {
         assert.equal((await state(current.row.responseId)).state, 'active');
     });
 
-    test('live Graphile Worker consumes immediate deletes and expires old tokens', async () => {
+    test('Graphile Worker processes deletions, expires old tokens, and logs only errors', async t => {
         const alice = id(), bob = id();
         await db.transaction(tx => saveAccount(tx, bob, recipientAccount));
         const immediate = await db.transaction(tx => tracked(tx, undefined, alice, { accountIds: [bob] }));
@@ -144,15 +144,21 @@ if (!connectionString) {
             createdAt: new Date(Date.now() - replyLifetime - 1_000), encryptedToken: cipher.seal('normal-expiry-token'),
         }));
         const expired = await db.transaction(tx => tracked(tx, undefined, alice, { createdAt: new Date(Date.now() - 16 * 60_000) }));
+        const failed = await db.transaction(tx => tracked(tx, undefined, alice, {
+            createdAt: new Date(Date.now() - replyLifetime - 1_000), encryptedToken: cipher.seal('failed-expiry-token'),
+        }));
         await db.transaction(tx => deleteAccount(tx, bob));
 
+        const infoLog = t.mock.method(console, 'info', () => {});
+        const errorLog = t.mock.method(console, 'error', () => {});
         const urls = [];
         await runOnce({
             connectionString,
+            logger: replyWorkerLogger,
             taskList: replyTasks(db, cipher, '123', async (url, options) => {
                 assert.equal(options.method, 'DELETE');
                 urls.push(url);
-                return new Response(null, { status: 204 });
+                return new Response(null, { status: url.endsWith('/failed-expiry-token/messages/@original') ? 502 : 204 });
             }),
             concurrency: 1,
             noHandleSignals: true,
@@ -165,6 +171,12 @@ if (!connectionString) {
         assert.equal((await state(expired.responseId)).state, 'expired');
         assert.equal((await state(expired.responseId)).encryptedToken, null);
         assert.equal(await job(immediate.responseId), undefined);
+        assert.equal((await state(failed.responseId)).state, 'active');
+        assert.equal(infoLog.mock.callCount(), 0);
+        const errors = errorLog.mock.calls.map(call => call.arguments.join(' '));
+        assert.equal(errors.length, 1, errors.join('\n'));
+        assert.match(errors[0], /Failed task \d+ \(delete_private_response,.*Private Discord reply deletion failed with status 502/);
+        assert.doesNotMatch(errors[0], /failed-expiry-token/);
     });
 
     test('Discord command handler uses ephemeral modal results on a forum and masks unrelated records', async t => {

@@ -136,6 +136,7 @@ erDiagram
 4. **중복과 만료** — 워커는 응답 행의 상태와 토큰 만료를 확인한 뒤 Discord 원본 응답 삭제 API를 호출한다. 성공 및 이미 없는 응답은 동일하게 종료하고 토큰을 지운다. 실행이 겹쳐도 상태가 되돌아가지 않게 한다. 일시 장애는 남은 유효 시간 안에서 재시도하고, 토큰이 만료되면 Discord에 더 요청하지 않고 종료한다. 만료되어 삭제가 불가능한 화면은 다음 명령을 실행할 때 최신 내용을 새로 보여 준다.
 5. **조회와 갱신이 동시에 일어날 때** — 응답에 사용할 데이터를 읽고 의존성을 저장하는 트랜잭션과 해당 데이터를 변경하고 응답을 무효화하는 트랜잭션에 `SERIALIZABLE`을 적용한다. 충돌은 트랜잭션 전체를 제한적으로 재시도한다. 정산 수정·취소는 소유자와 버전으로 적용 여부를 확인한다. 포스트·계좌 advisory lock과 선행 `SELECT FOR UPDATE`는 사용하지 않는다. 결과 게시 직전 응답 유효 상태를 확인하고, 이미 삭제된 Discord 원본은 재생성하지 않는다.
 6. **응답 자격 정보** — 토큰은 큐에 복사하지 않고 제한된 DB 영역에 암호화해 저장한다. 큐 페이로드에는 응답 ID만 넣는다. Discord 응답 삭제 URL에도 토큰이 포함되므로 토큰·요청 URL·계좌번호를 로그에 기록하지 않는다. 정상 종료뿐 아니라 만료된 응답과 토큰이 작업 실패 후에도 남지 않도록 만료 정리 작업을 둔다.
+7. **워커 로그** — Graphile Worker의 오류 등급 메시지만 표준 오류에 출력한다.
 
 참조 [다모아의 트랜잭션 내 작업 등록](https://github.com/Da-Moa/Backend/blob/main/src/backend/domain/settle/repository/settle.repository.ts#L1119) · [다모아의 작업 실행기](https://github.com/Da-Moa/Backend/blob/main/src/backend/domain/settle/service/receiptWorker.ts#L143) · [Graphile 작업 키와 실행 중 교체](https://worker.graphile.org/docs/job-key) · [Discord 원본 응답 삭제](https://docs.discord.com/developers/interactions/receiving-and-responding#delete-original-interaction-response)
 

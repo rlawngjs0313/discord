@@ -1,8 +1,12 @@
-import { run, type TaskList } from 'graphile-worker';
+import { Logger, run, type TaskList } from 'graphile-worker';
 import type { Database } from '../../database/database';
 import type { TokenCipher } from './store';
 
 const active = ['active', 'invalidated'];
+
+export const replyWorkerLogger = new Logger(() => (level, message) => {
+    if (level === 'error') console.error('[Graphile Worker] %s', message);
+});
 
 export function replyTasks(
     db: Database, cipher: TokenCipher, applicationId: string,
@@ -72,6 +76,7 @@ export function replyTasks(
 export function startWorker(connectionString: string, db: Database, cipher: TokenCipher, applicationId: string) {
     return run({
         connectionString,
+        logger: replyWorkerLogger,
         taskList: replyTasks(db, cipher, applicationId),
         crontab: '* * * * * purge_private_responses',
         concurrency: 2,
