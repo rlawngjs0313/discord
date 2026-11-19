@@ -1,0 +1,71 @@
+import { randomUUID } from 'node:crypto';
+import { MessageFlags, type ButtonInteraction, type ChatInputCommandInteraction, type InteractionEditReplyOptions, type ModalSubmitInteraction } from 'discord.js';
+import type { Database, Tx } from '../../database/database';
+import { InputError } from '../settlement/amount';
+import { storeReply, type TokenCipher } from '../replies/store';
+
+export type ReplyInteraction = ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction;
+export type ReplyView = Pick<InteractionEditReplyOptions, 'content' | 'components'> & {
+    kind?: 'confirm' | 'detail';
+    postId?: string;
+    accountIds?: string[];
+    recordIds?: string[];
+};
+
+export function privateReplies(db: Database, cipher: TokenCipher) {
+    return async (interaction: ReplyInteraction, prepare: (tx: Tx, responseId: string) => Promise<ReplyView> | ReplyView,
+        retryComponents?: ReplyView['components']) => {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const createdAt = new Date();
+        const encryptedToken = cipher.seal(interaction.token);
+        const responseId = randomUUID();
+        const stage = (build: typeof prepare) => db.transaction(async tx => {
+            const view = await build(tx, responseId);
+            const row = await storeReply(tx, {
+                responseId,
+                interactionId: interaction.id, interactionAt: interaction.createdTimestamp,
+                ownerId: interaction.user.id, commandKind: view.kind ?? 'notice',
+                encryptedToken, createdAt, postId: view.postId,
+                accountIds: view.accountIds, recordIds: view.recordIds,
+            });
+            return { view, row };
+        });
+
+        let result;
+        try {
+            result = await stage(prepare);
+        } catch (error) {
+            if (!(error instanceof InputError)) console.error('Discord reply transaction failed.');
+            const content = error instanceof InputError ? error.message : '처리하지 못했어요. 잠시 후 다시 시도해 주세요.';
+            try {
+                result = await stage(() => ({ content, components: error instanceof InputError ? retryComponents : undefined }));
+            } catch {
+                // A failed registration must never publish an untracked payment result.
+                await interaction.editReply({ content: '정산 정보를 열 수 없어요. 잠시 후 다시 시도해 주세요.' }).catch(() => undefined);
+                return;
+            }
+        }
+
+        const { view, row } = result;
+        const active = await db.prisma.privateResponse.findFirst({
+            where: { responseId: row.responseId, state: 'active', tokenExpiresAt: { gt: new Date() } },
+            select: { responseId: true },
+        });
+        if (!active) return;
+        await interaction.editReply({ content: view.content, components: view.components, allowedMentions: { parse: [] } });
+
+        if (view.kind && view.postId) {
+            await db.prisma.privateResponse.updateMany({
+                where: {
+                    scopePostId: view.postId, ownerId: interaction.user.id, commandKind: view.kind,
+                    state: 'active', tokenExpiresAt: { gt: new Date() },
+                    OR: [
+                        { createdAt: { lt: row.createdAt } },
+                        { createdAt: row.createdAt, interactionId: { lt: interaction.id } },
+                    ],
+                },
+                data: { state: 'invalidated' },
+            });
+        }
+    };
+}

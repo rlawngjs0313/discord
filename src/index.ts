@@ -1,49 +1,63 @@
 import 'dotenv/config';
-import cron from 'node-cron';
-import config from './config';
-import { client, registerEvents } from './domains/bot/bot.service';
-import { createServer } from './domains/web/web.app';
-import { sendScheduledGif } from './domains/scheduler/scheduler.service';
+import { Client, Events, GatewayIntentBits } from 'discord.js';
+import { createDatabase } from './database/database';
+import { commandHandler, registerCommands } from './domains/bot/commands';
+import { tokenCipher } from './domains/replies/store';
+import { startWorker } from './domains/replies/worker';
 
-const app = createServer(client);
-
-// 애플리케이션 시작
-const start = (): void => {
-    // 1. 이벤트 리스너 등록
-    registerEvents(client);
-
-    // 2. 웹 서버 시작
-    app.listen(config.web.port, () => {
-        console.log(`Web server is running on port ${config.web.port}`);
-    }).on('error', (err: Error) => {
-        console.error('Web server failed to start:', err);
-        process.exit(1);
-    });
-
-    // 3. 스케줄러 등록
-    cron.schedule(config.scheduler.cronSchedule, () => {
-        if (client.isReady()) {
-            sendScheduledGif(client, {
-                channelId: config.scheduler.channelId,
-                channelName: config.scheduler.channelName,
-                gifUrl: config.scheduler.gifUrl
-            });
-        }
-    }, {
-        scheduled: true,
-        timezone: config.scheduler.timezone
-    });
-
-    // 4. 디스코드 봇 로그인
-    client.login(config.discord.token).catch(error => {
-        console.error('Discord login failed:', error);
-        process.exit(1);
-    });
-};
-
-// Check if this file is the entry point
-if (require.main === module) {
-    start();
+function required(name: string) {
+    const value = process.env[name];
+    if (!value) throw new Error(name + ' is required.');
+    return value;
 }
 
-export { app, client };
+async function start() {
+    const url = required('DATABASE_URL');
+    const botToken = required('DISCORD_TOKEN');
+    const applicationId = required('DISCORD_CLIENT_ID');
+    const cipher = tokenCipher(Buffer.from(required('DISCORD_RESPONSE_KEY'), 'base64'));
+    const db = createDatabase(url);
+    const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+    let worker: Awaited<ReturnType<typeof startWorker>> | undefined;
+    let closing: Promise<void> | undefined;
+    function close() {
+        closing ??= (async () => {
+            try { await client.destroy(); }
+            finally {
+                try { await worker?.stop(); }
+                finally { await db.close(); }
+            }
+        })();
+        return closing;
+    }
+
+    try {
+        await db.prisma.privateResponse.findFirst({ select: { responseId: true } });
+        worker = await startWorker(url, db, cipher, applicationId);
+        worker.promise.catch(() => {
+            console.error('Reply deletion worker stopped unexpectedly.');
+            process.exitCode = 1;
+            void close().catch(() => undefined);
+        });
+        await registerCommands(botToken, applicationId, process.env.DISCORD_GUILD_ID);
+        const handle = commandHandler(db, cipher);
+        client.once(Events.ClientReady, () => console.info('Discord Gateway ready.'));
+        client.on(Events.InteractionCreate, interaction => {
+            void handle(interaction).catch(() => console.error('Discord interaction failed.'));
+        });
+        if (!closing) await client.login(botToken);
+        for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+            process.once(signal, () => void close().catch(() => { process.exitCode = 1; }));
+        }
+    } catch {
+        await close().catch(() => undefined);
+        throw new Error('Discord bot startup failed. Check configuration, migrations, and Discord access.');
+    }
+}
+
+if (require.main === module) {
+    void start().catch((error: Error) => {
+        console.error(error.message);
+        process.exitCode = 1;
+    });
+}
