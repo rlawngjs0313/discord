@@ -33,7 +33,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest
-            type=sha
+            type=sha,format=long
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -45,31 +45,32 @@ jobs:
 
       - name: Deploy to GCE via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          BOT_IMAGE: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          DISCORD_RESPONSE_KEY: ${{ secrets.DISCORD_RESPONSE_KEY }}
+          DATABASE_URL: ${{ secrets.DISCORD_DATABASE_URL }}
         with:
           host: ${{ secrets.GCE_IP }}
           username: ${{ secrets.GCE_USERNAME }}
           key: ${{ secrets.GCE_SSH_SECRET_KEY }}
+          envs: GHCR_TOKEN,GHCR_USER,BOT_IMAGE,DISCORD_TOKEN,DISCORD_CLIENT_ID,DISCORD_RESPONSE_KEY,DATABASE_URL
           script: |
-            # GHCR 로그인
-            echo ${{ secrets.GITHUB_TOKEN }} | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            
-            # 기존 컨테이너 중지 및 제거
-            sudo docker ps -q --filter "name=discord-bot" | xargs -r sudo docker stop
-            sudo docker ps -a -q --filter "name=discord-bot" | xargs -r sudo docker rm
-            
-            # 최신 이미지 풀
-            sudo docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            
-            # 새 컨테이너 실행 (80포트 매핑)
-            sudo docker run -d \
-              --name discord-bot \
-              --restart always \
-              -p 80:8000 \
-              -e DISCORD_TOKEN=${{ secrets.DISCORD_TOKEN }} \
-              -e DISCORD_CLIENT_ID=${{ secrets.DISCORD_CLIENT_ID }} \
-              -e DISCORD_CLIENT_SECRET=${{ secrets.DISCORD_CLIENT_SECRET }} \
-              -e DISCORD_REDIRECT_URI=${{ secrets.DISCORD_REDIRECT_URI }} \
-              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            
-            # 사용하지 않는 이미지 정리
-            sudo docker image prune -f
+            set -eu
+            : "${DISCORD_TOKEN:?Missing Discord bot token}"
+            : "${DISCORD_CLIENT_ID:?Missing Discord application ID}"
+            : "${DISCORD_RESPONSE_KEY:?Missing response encryption key}"
+            : "${DATABASE_URL:?Missing Discord PostgreSQL URL}"
+            image=$(printf '%s' "$BOT_IMAGE" | tr '[:upper:]' '[:lower:]')
+            printf '%s' "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            sudo docker pull "$image"
+            if sudo docker container inspect discord-bot >/dev/null 2>&1; then
+              sudo docker rm -f discord-bot
+            fi
+            sudo --preserve-env=DISCORD_TOKEN,DISCORD_CLIENT_ID,DISCORD_RESPONSE_KEY,DATABASE_URL docker run -d \
+              --name discord-bot --restart always \
+              -e DISCORD_TOKEN -e DISCORD_CLIENT_ID -e DISCORD_RESPONSE_KEY -e DATABASE_URL \
+              "$image"
