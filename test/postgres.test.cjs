@@ -347,7 +347,7 @@ if (!connectionString) {
         const earlier = await db.prisma.privateResponse.findUniqueOrThrow({ where: { interactionId: submit.id } });
         assert.equal(earlier.tokenExpiresAt.getTime(), submit.createdTimestamp + 15 * 60_000);
         assert.equal(cipher.open(earlier.encryptedToken), submit.token);
-        assert.equal((await job(earlier.responseId)).run_at.getTime(), earlier.createdAt.getTime() + replyLifetime);
+        assert.equal((await job(earlier.responseId)).run_at.getTime(), earlier.createdAt.getTime() + 60_000);
 
         const newest = await add(scope, creator.id, reader.id, 20_000n);
         const oldest = await db.prisma.settlementRecord.findFirstOrThrow({ where: { createInteractionId: submit.id } });

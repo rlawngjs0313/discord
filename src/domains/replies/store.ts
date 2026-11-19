@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import type { Tx } from '../../database/database';
 
-export const replyLifetime = 14 * 60 * 1000;
+export const replyLifetime = 60_000;
 export const tokenLifetime = 15 * 60 * 1000;
 
 export function tokenCipher(key: Buffer) {
