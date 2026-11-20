@@ -4,6 +4,9 @@ src/generated
 .env
 .env.*
 !.env.example
+bot.env
+postgres.env
+image.env
 .git
 .gitignore
 Dockerfile

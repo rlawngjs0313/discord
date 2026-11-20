@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { writeFileSync } from 'node:fs';
 import { Client, Events, GatewayIntentBits } from 'discord.js';
 import { createDatabase } from './database/database';
 import { commandHandler, registerCommands } from './domains/bot/commands';
@@ -41,7 +42,11 @@ async function start() {
         });
         await registerCommands(botToken, applicationId, process.env.DISCORD_GUILD_ID);
         const handle = commandHandler(db, cipher);
-        client.once(Events.ClientReady, () => console.info('Discord Gateway ready.'));
+        client.once(Events.ClientReady, () => {
+            const readyFile = process.env.DISCORD_READY_FILE;
+            if (readyFile) writeFileSync(readyFile, '');
+            console.info('Discord Gateway ready.');
+        });
         client.on(Events.InteractionCreate, interaction => {
             void handle(interaction).catch(() => console.error('Discord interaction failed.'));
         });

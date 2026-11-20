@@ -19,4 +19,4 @@ COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./
 COPY --from=build /app/scripts/migrate.cjs ./scripts/migrate.cjs
 USER node
-CMD ["sh", "-c", "npm run db:deploy && exec node dist/index.js"]
+CMD ["sh", "-c", "rm -f /tmp/discord-ready && npm run db:deploy && exec node dist/index.js"]

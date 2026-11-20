@@ -2,7 +2,11 @@ name: Discord Bot CD (Deploy)
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+
+concurrency:
+  group: discord-production
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
@@ -18,6 +22,22 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Check deployment settings
+        env:
+          TARGET_FINGERPRINT: ${{ secrets.GCE_SSH_FINGERPRINT }}
+          PROXY_HOST: ${{ secrets.GCE_PROXY_HOST }}
+          PROXY_USER: ${{ secrets.GCE_PROXY_USERNAME }}
+          PROXY_KEY: ${{ secrets.GCE_PROXY_SSH_KEY }}
+          PROXY_FINGERPRINT: ${{ secrets.GCE_PROXY_FINGERPRINT }}
+        run: |
+          : "${TARGET_FINGERPRINT:?Set GCE_SSH_FINGERPRINT}"
+          if [ -n "$PROXY_HOST" ]; then
+            : "${PROXY_USER:?Set GCE_PROXY_USERNAME}"
+            : "${PROXY_KEY:?Set GCE_PROXY_SSH_KEY}"
+            : "${PROXY_FINGERPRINT:?Set GCE_PROXY_FINGERPRINT}"
+          fi
+          printf 'COMPOSE_FILE_B64=%s\n' "$(base64 -w0 compose.production.yaml)" >> "$GITHUB_ENV"
 
       - name: Log in to the Container registry
         uses: docker/login-action@v3
@@ -35,42 +55,74 @@ jobs:
             type=raw,value=latest
             type=sha,format=long
 
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v3
+
       - name: Build and push Docker image
+        id: image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Deploy to GCE via SSH
+      - name: Deploy Compose project to VM B
         uses: appleboy/ssh-action@v1.0.3
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
-          BOT_IMAGE: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
-          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
-          DISCORD_RESPONSE_KEY: ${{ secrets.DISCORD_RESPONSE_KEY }}
-          DATABASE_URL: ${{ secrets.DISCORD_DATABASE_URL }}
+          BOT_IMAGE: ghcr.io/${{ github.repository }}@${{ steps.image.outputs.digest }}
         with:
           host: ${{ secrets.GCE_IP }}
           username: ${{ secrets.GCE_USERNAME }}
           key: ${{ secrets.GCE_SSH_SECRET_KEY }}
-          envs: GHCR_TOKEN,GHCR_USER,BOT_IMAGE,DISCORD_TOKEN,DISCORD_CLIENT_ID,DISCORD_RESPONSE_KEY,DATABASE_URL
+          fingerprint: ${{ secrets.GCE_SSH_FINGERPRINT }}
+          proxy_host: ${{ secrets.GCE_PROXY_HOST }}
+          proxy_username: ${{ secrets.GCE_PROXY_USERNAME }}
+          proxy_key: ${{ secrets.GCE_PROXY_SSH_KEY }}
+          proxy_fingerprint: ${{ secrets.GCE_PROXY_FINGERPRINT }}
+          command_timeout: 8m
+          envs: GHCR_TOKEN,GHCR_USER,BOT_IMAGE,COMPOSE_FILE_B64
           script: |
             set -eu
-            : "${DISCORD_TOKEN:?Missing Discord bot token}"
-            : "${DISCORD_CLIENT_ID:?Missing Discord application ID}"
-            : "${DISCORD_RESPONSE_KEY:?Missing response encryption key}"
-            : "${DATABASE_URL:?Missing Discord PostgreSQL URL}"
-            image=$(printf '%s' "$BOT_IMAGE" | tr '[:upper:]' '[:lower:]')
-            printf '%s' "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USER" --password-stdin
-            sudo docker pull "$image"
-            if sudo docker container inspect discord-bot >/dev/null 2>&1; then
-              sudo docker rm -f discord-bot
+            cd "$HOME/discord-deploy"
+            test -r bot.env
+            test -r postgres.env
+            docker info >/dev/null
+            if [ "$(docker inspect --format '{{.State.Running}}' discord-bot 2>/dev/null || true)" = true ]; then
+              echo "Stop the legacy discord-bot container before the first Compose deployment." >&2
+              exit 1
             fi
-            sudo --preserve-env=DISCORD_TOKEN,DISCORD_CLIENT_ID,DISCORD_RESPONSE_KEY,DATABASE_URL docker run -d \
-              --name discord-bot --restart always \
-              -e DISCORD_TOKEN -e DISCORD_CLIENT_ID -e DISCORD_RESPONSE_KEY -e DATABASE_URL \
-              "$image"
+
+            umask 077
+            registry_config=$(mktemp -d)
+            compose_file=$(mktemp .compose.XXXXXX)
+            image_file=$(mktemp .image.XXXXXX)
+            trap 'rm -rf "$registry_config"; rm -f "$compose_file" "$image_file"' EXIT
+            image=$(printf '%s' "$BOT_IMAGE" | tr '[:upper:]' '[:lower:]')
+            printf '%s' "$COMPOSE_FILE_B64" | base64 -d > "$compose_file"
+            printf 'BOT_IMAGE=%s\n' "$image" > "$image_file"
+            unset BOT_IMAGE
+
+            next_compose() {
+              docker --config "$registry_config" compose -f "$compose_file" --env-file "$image_file" "$@"
+            }
+            next_compose config --quiet
+            printf '%s' "$GHCR_TOKEN" | docker --config "$registry_config" login ghcr.io -u "$GHCR_USER" --password-stdin
+            next_compose pull bot
+            if ! next_compose up -d --wait --wait-timeout 120; then
+              next_compose ps >&2 || true
+              if [ -f compose.yaml ] && [ -f image.env ]; then
+                docker --config "$registry_config" compose --env-file image.env up -d --wait --wait-timeout 120 || true
+              else
+                next_compose stop bot || true
+              fi
+              exit 1
+            fi
+            mv "$compose_file" compose.yaml
+            mv "$image_file" image.env
+            docker compose --env-file image.env ps
