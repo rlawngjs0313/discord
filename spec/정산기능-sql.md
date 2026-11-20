@@ -28,6 +28,6 @@
 
 ## 삭제 작업과 커밋
 
-[마이그레이션](../prisma/migrations/20261119000000_forum_settlement/migration.sql)의 트리거는 비공개 답장이 생성될 때 애플리케이션이 저장한 생성 시각 + 1분에 실행할 작업을 등록한다. 상태가 `active`에서 `invalidated`가 되면 같은 작업 키로 즉시 실행 작업을 등록한다. PostgreSQL이 이 트리거를 실행하므로 업무 변경이 롤백되면 작업도 함께 롤백된다.
+[마이그레이션](../prisma/migrations/20261119000000_forum_settlement/migration.sql)의 트리거는 공개·비공개 답장이 생성될 때 애플리케이션이 저장한 생성 시각 + 1분에 실행할 작업을 등록한다. 상태가 `active`에서 `invalidated`가 되면 같은 작업 키로 즉시 실행 작업을 등록한다. PostgreSQL이 이 트리거를 실행하므로 업무 변경이 롤백되면 작업도 함께 롤백된다.
 
 워커는 Graphile에서 받은 응답 ID로 암호화된 토큰을 읽고 Discord 원본을 삭제한다. 완료·만료 후 토큰을 비우고, 데이터베이스를 장시간 점유하는 외부 요청을 만들지 않는다. Graphile의 작업 조회·폴링은 Graphile 내부 쿼리다.

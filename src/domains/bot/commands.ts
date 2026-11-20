@@ -2,6 +2,7 @@ import {
     ActionRowBuilder, ApplicationIntegrationType, ButtonBuilder, ButtonStyle, ChannelType,
     ComponentType, InteractionContextType, LabelBuilder, ModalBuilder, REST, Routes, SlashCommandBuilder,
     StringSelectMenuBuilder, TextInputBuilder, TextInputStyle, UserSelectMenuBuilder, type ButtonInteraction, type Interaction,
+    type ModalSubmitInteraction,
 } from 'discord.js';
 import type { Database, Tx } from '../../database/database';
 import { deleteAccount, saveAccount } from '../account/accounts';
@@ -12,7 +13,7 @@ import {
     cancelSettlement, createSettlement, editSettlement, getDetail, getTransfers,
     loadOwnedRecord, type Post,
 } from '../settlement/settlements';
-import { privateReplies, type ReplyInteraction, type ReplyView } from './private-reply';
+import { interactionReplies, type ReplyInteraction, type ReplyView } from './reply';
 
 const commandBuilders = [
     new SlashCommandBuilder().setName('정산').setDescription('이 포럼 포스트에 정산 기록을 추가해요.'),
@@ -70,6 +71,18 @@ export function settlementModal(id: string, existing?: { totalWon: bigint; userI
             textLabel('total', '총액', 24, existing?.totalWon.toString(), '예: 10,000원'));
 }
 
+function settlementInput(interaction: ModalSubmitInteraction) {
+    const { fields, user } = interaction;
+    if (fields.getField('users')?.type !== ComponentType.UserSelect) throw new InputError('사용자를 선택해 주세요.');
+    const selected = fields.getSelectedUsers('users', true);
+    const members = fields.getSelectedMembers('users');
+    const participants = [...selected.values()].filter(participant => participant.id !== user.id);
+    if (participants.length < 1 || participants.length > 25 || participants.some(participant => participant.bot || !members?.has(participant.id))) {
+        throw new InputError('현재 서버에 있는 사람을 한 명 이상 선택해 주세요.');
+    }
+    return { totalWon: parseWon(fields.getTextInputValue('total')), userIds: [user.id, ...participants.map(participant => participant.id)] };
+}
+
 function bankModal(actor: string) {
     const bank = new StringSelectMenuBuilder().setCustomId('bank-code').setPlaceholder('선택')
         .setRequired(true).setMinValues(1).setMaxValues(1).addOptions(bankOptions);
@@ -106,7 +119,7 @@ const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const codeSafe = (s: string) => s.replaceAll('`', 'ˋ');
 
 export function commandHandler(db: Database, cipher: TokenCipher) {
-    const send = privateReplies(db, cipher);
+    const send = interactionReplies(db, cipher);
     const editingDetail = new Set<string>();
 
     async function confirm(i: ReplyInteraction, post: Post, requestedPage: number) {
@@ -211,7 +224,7 @@ export function commandHandler(db: Database, cipher: TokenCipher) {
                     const account = normalizeAccount(code, i.fields.getTextInputValue('number'), i.fields.getTextInputValue('holder'));
                     await saveAccount(tx, actor, account);
                     return notice('정산 계좌를 등록했어요.');
-                }, [row(button('bank-retry:' + actor, '다시 입력'))]);
+                }, { retryComponents: [row(button('bank-retry:' + actor, '다시 입력'))] });
             }
             if (action === 'bank-retry' && i.isButton()) return await i.showModal(bankModal(actor));
             if (action === 'bank-delete' && i.isButton()) {
@@ -259,24 +272,25 @@ export function commandHandler(db: Database, cipher: TokenCipher) {
                 });
             }
             if (i.isModalSubmit() && (action === 'create' || (action === 'save' && isRecord))) {
-                const retry = action === 'create' ? 'retry:' + actor + ':' + scope : 'edit' + key;
+                const creating = action === 'create';
+                const retry = creating ? 'retry:' + actor + ':' + scope : 'edit' + key;
+                const retryComponents = [row(button(retry, '다시 입력'))];
+                let input: ReturnType<typeof settlementInput>;
+                try {
+                    input = settlementInput(i);
+                } catch (error) {
+                    if (!(error instanceof InputError)) throw error;
+                    return await send(i, () => ({ content: error.message, components: retryComponents }));
+                }
                 return await send(i, async tx => {
-                    if (i.fields.getField('users')?.type !== ComponentType.UserSelect) throw new InputError('사용자를 선택해 주세요.');
-                    const selected = i.fields.getSelectedUsers('users', true);
-                    const members = i.fields.getSelectedMembers('users');
-                    const ids = [...selected.values()].filter(user => user.id !== actor);
-                    if (ids.length < 1 || ids.length > 25 || ids.some(user => user.bot || !members?.has(user.id))) {
-                        throw new InputError('현재 서버에 있는 사람을 한 명 이상 선택해 주세요.');
-                    }
-                    const input = { totalWon: parseWon(i.fields.getTextInputValue('total')), userIds: [actor, ...ids.map(user => user.id)] };
-                    const record = action === 'create' ? await createSettlement(tx, post, actor, i.id, input)
+                    const record = creating ? await createSettlement(tx, post, actor, i.id, input)
                         : await editSettlement(tx, owner, version, input);
                     return {
                         postId: post.postId, recordIds: [record.recordId],
-                        content: (action === 'create' ? '정산 등록' : '정산 수정') + ' · 총 ' + won(record.totalWon)
+                        content: (creating ? '정산 등록' : '정산 수정') + ' · 총 ' + won(record.totalWon)
                             + '\n' + (transfers(actor, record.shares).join('\n') || '받을 금액이 없어요.'),
                     };
-                }, [row(button(retry, '다시 입력'))]);
+                }, { visibility: creating ? 'public' : 'private', retryComponents });
             }
             throw new InputError('이 화면에서는 처리할 수 없어요. 명령을 다시 실행해 주세요.');
         } catch (error) {

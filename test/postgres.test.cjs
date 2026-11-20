@@ -179,7 +179,7 @@ if (!connectionString) {
         assert.doesNotMatch(errors[0], /failed-expiry-token/);
     });
 
-    test('Discord command handler uses ephemeral modal results on a forum and masks unrelated records', async t => {
+    test('Discord command handler publishes registrations and keeps lookups and input errors private', async t => {
         const handle = commandHandler(db, cipher);
         const author = id(), reader = id(), scope = post();
         const opening = { type: ChannelType.PublicThread, id: scope.postId, guildId: scope.guildId,
@@ -194,8 +194,12 @@ if (!connectionString) {
                 isButton() { return type === 'button'; },
                 isModalSubmit() { return type === 'modal'; },
                 showModal(modal) { this.modal = modal.toJSON(); },
-                async deferReply(options) { this.deferred = true; assert.equal(options.flags, MessageFlags.Ephemeral); },
+                async deferReply(options) {
+                    this.deferred = true;
+                    assert.equal(options.flags, this.expectedFlags);
+                },
                 async editReply(options) { this.response = options; },
+                expectedFlags: MessageFlags.Ephemeral,
                 ...input,
             };
         }
@@ -205,6 +209,7 @@ if (!connectionString) {
 
         const submitted = fake(author, 'modal', {
             customId: start.modal.custom_id,
+            expectedFlags: undefined,
             fields: {
                 getField() { return { type: ComponentType.UserSelect }; },
                 getSelectedUsers() { return new Map([[reader, { id: reader, bot: false }]]); },
@@ -223,6 +228,15 @@ if (!connectionString) {
         assert.match(submitted.response.content, /10,000원/);
         assert.match(submitted.response.content, new RegExp(reader + '> → <@' + author + '>: 5,000원'));
         assert.deepEqual(submitted.response.allowedMentions, { parse: [] });
+
+        const badAmount = fake(author, 'modal', {
+            customId: start.modal.custom_id,
+            fields: { ...submitted.fields, getTextInputValue: () => '만원' },
+        });
+        await handle(badAmount);
+        assert.match(badAmount.response.content, /원 단위 정수/);
+        assert.equal(badAmount.response.components[0].components[0].data.label, '다시 입력');
+        assert.equal(await db.prisma.settlementRecord.count({ where: { postId: scope.postId } }), 1);
 
         const check = fake(reader, 'command', { commandName: '정산확인' });
         from = queries.length;
@@ -317,6 +331,7 @@ if (!connectionString) {
             rest.push({ method: 'PATCH', route, ...options });
             return { id: id(), channel_id: scope.postId, ...options.body };
         };
+        client.rest.delete = async route => rest.push({ method: 'DELETE', route });
 
         const envelope = (type, user, data) => {
             const snowflake = ((BigInt(Date.now()) - 1420070400000n) << 22n) + ++serial;
@@ -337,7 +352,7 @@ if (!connectionString) {
         assert.equal(open.route, Routes.interactionCallback(slash.id, slash.token));
         assert.equal(open.body.type, InteractionResponseType.Modal);
 
-        const submit = new ModalSubmitInteraction(client, envelope(InteractionType.ModalSubmit, creator, {
+        const makeSubmit = () => new ModalSubmitInteraction(client, envelope(InteractionType.ModalSubmit, creator, {
             custom_id: open.body.data.custom_id,
             components: [
                 { type: ComponentType.Label, component: { type: ComponentType.UserSelect, custom_id: 'users', values: [reader.id] } },
@@ -345,12 +360,13 @@ if (!connectionString) {
             ],
             resolved: { users: { [reader.id]: reader }, members: { [reader.id]: { roles: [], permissions: '0' } } },
         }));
+        const submit = makeSubmit();
         await handle(submit);
         assert.equal(rest.length, 3);
         const [, defer, result] = rest;
         assert.equal(defer.route, Routes.interactionCallback(submit.id, submit.token));
         assert.equal(defer.body.type, InteractionResponseType.DeferredChannelMessageWithSource);
-        assert.equal(defer.body.data.flags, MessageFlags.Ephemeral);
+        assert.equal(defer.body.data.flags, 0);
         assert.equal(result.method, 'PATCH');
         assert.equal(result.route, Routes.webhookMessage(applicationId, submit.token, '@original'));
         assert.deepEqual(result.body.allowed_mentions, { parse: [] });
@@ -367,6 +383,7 @@ if (!connectionString) {
             id: id(), name: '정산세부', type: ApplicationCommandType.ChatInput, options: [],
         }));
         await handle(detail);
+        assert.equal(rest.at(-2).body.data.flags, MessageFlags.Ephemeral);
         const firstPage = rest.at(-1).body;
         assert.match(firstPage.content, /^정산 1\/2[\s\S]*10,000원/);
         const reply = await db.prisma.privateResponse.findUniqueOrThrow({ where: { interactionId: detail.id } });
@@ -406,5 +423,22 @@ if (!connectionString) {
         assert.deepEqual(await linkedRecords(), [newest.recordId]);
         assert.deepEqual(await state(reply.responseId), reply);
         assert.deepEqual(await job(reply.responseId), scheduled);
+
+        const unavailable = makeSubmit();
+        const handleUnavailable = commandHandler({
+            ...db,
+            async transaction() { throw new Error('fixture database unavailable'); },
+        }, cipher);
+        const originalError = console.error;
+        const errorLog = t.mock.method(console, 'error', (...args) => {
+            if (args[0] !== 'Discord reply transaction failed.') originalError(...args);
+        });
+        const start = rest.length;
+        await handleUnavailable(unavailable);
+        assert.deepEqual(rest.slice(start).map(call => [call.method, call.route]), [
+            ['POST', Routes.interactionCallback(unavailable.id, unavailable.token)],
+            ['DELETE', Routes.webhookMessage(applicationId, unavailable.token, '@original')],
+        ]);
+        assert.deepEqual(errorLog.mock.calls.map(call => call.arguments), [['Discord reply transaction failed.']]);
     });
 }

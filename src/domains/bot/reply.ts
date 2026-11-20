@@ -12,10 +12,12 @@ export type ReplyView = Pick<InteractionEditReplyOptions, 'content' | 'component
     recordIds?: string[];
 };
 
-export function privateReplies(db: Database, cipher: TokenCipher) {
+type ReplyOptions = { visibility?: 'public' | 'private'; retryComponents?: ReplyView['components'] };
+
+export function interactionReplies(db: Database, cipher: TokenCipher) {
     return async (interaction: ReplyInteraction, prepare: (tx: Tx, responseId: string) => Promise<ReplyView> | ReplyView,
-        retryComponents?: ReplyView['components']) => {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        { visibility = 'private', retryComponents }: ReplyOptions = {}) => {
+        await interaction.deferReply({ flags: visibility === 'private' ? MessageFlags.Ephemeral : undefined });
         const createdAt = new Date();
         const encryptedToken = cipher.seal(interaction.token);
         const responseId = randomUUID();
@@ -36,6 +38,10 @@ export function privateReplies(db: Database, cipher: TokenCipher) {
             result = await stage(prepare);
         } catch (error) {
             if (!(error instanceof InputError)) console.error('Discord reply transaction failed.');
+            if (visibility === 'public') {
+                await interaction.deleteReply().catch(() => undefined);
+                return;
+            }
             const content = error instanceof InputError ? error.message : '처리하지 못했어요. 잠시 후 다시 시도해 주세요.';
             try {
                 result = await stage(() => ({ content, components: error instanceof InputError ? retryComponents : undefined }));
