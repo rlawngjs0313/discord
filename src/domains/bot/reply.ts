@@ -19,15 +19,15 @@ export function interactionReplies(db: Database, cipher: TokenCipher) {
         { visibility = 'private', retryComponents }: ReplyOptions = {}) => {
         await interaction.deferReply({ flags: visibility === 'private' ? MessageFlags.Ephemeral : undefined });
         const createdAt = new Date();
-        const encryptedToken = cipher.seal(interaction.token);
         const responseId = randomUUID();
         const stage = (build: typeof prepare) => db.transaction(async tx => {
             const view = await build(tx, responseId);
+            if (visibility === 'public') return { view, row: null };
             const row = await storeReply(tx, {
                 responseId,
                 interactionId: interaction.id, interactionAt: interaction.createdTimestamp,
                 ownerId: interaction.user.id, commandKind: view.kind ?? 'notice',
-                encryptedToken, createdAt, postId: view.postId,
+                encryptedToken: cipher.seal(interaction.token), createdAt, postId: view.postId,
                 accountIds: view.accountIds, recordIds: view.recordIds,
             });
             return { view, row };
@@ -53,14 +53,16 @@ export function interactionReplies(db: Database, cipher: TokenCipher) {
         }
 
         const { view, row } = result;
-        const active = await db.prisma.privateResponse.findFirst({
-            where: { responseId: row.responseId, state: 'active', tokenExpiresAt: { gt: new Date() } },
-            select: { responseId: true },
-        });
-        if (!active) return;
+        if (row) {
+            const active = await db.prisma.privateResponse.findFirst({
+                where: { responseId: row.responseId, state: 'active', tokenExpiresAt: { gt: new Date() } },
+                select: { responseId: true },
+            });
+            if (!active) return;
+        }
         await interaction.editReply({ content: view.content, components: view.components, allowedMentions: { parse: [] } });
 
-        if (view.kind && view.postId) {
+        if (row && view.kind && view.postId) {
             await db.prisma.privateResponse.updateMany({
                 where: {
                     scopePostId: view.postId, ownerId: interaction.user.id, commandKind: view.kind,

@@ -361,6 +361,10 @@ if (!connectionString) {
             resolved: { users: { [reader.id]: reader }, members: { [reader.id]: { roles: [], permissions: '0' } } },
         }));
         const submit = makeSubmit();
+        const deleteJobCount = async () => (await sql.query(
+            "SELECT count(*) FROM graphile_worker.jobs WHERE task_identifier = 'delete_private_response'",
+        )).rows[0].count;
+        const beforeRegister = await deleteJobCount();
         await handle(submit);
         assert.equal(rest.length, 3);
         const [, defer, result] = rest;
@@ -372,10 +376,8 @@ if (!connectionString) {
         assert.deepEqual(result.body.allowed_mentions, { parse: [] });
         assert.ok(result.body.content.includes('<@' + reader.id + '> → <@' + creator.id + '>: 5,000원'));
 
-        const earlier = await db.prisma.privateResponse.findUniqueOrThrow({ where: { interactionId: submit.id } });
-        assert.equal(earlier.tokenExpiresAt.getTime(), submit.createdTimestamp + 15 * 60_000);
-        assert.equal(cipher.open(earlier.encryptedToken), submit.token);
-        assert.equal((await job(earlier.responseId)).run_at.getTime(), earlier.createdAt.getTime() + 60_000);
+        assert.equal(await db.prisma.privateResponse.findUnique({ where: { interactionId: submit.id } }), null);
+        assert.equal(await deleteJobCount(), beforeRegister);
 
         const newest = await add(scope, creator.id, reader.id, 20_000n);
         const oldest = await db.prisma.settlementRecord.findFirstOrThrow({ where: { createInteractionId: submit.id } });
@@ -388,7 +390,9 @@ if (!connectionString) {
         assert.match(firstPage.content, /^정산 1\/2[\s\S]*10,000원/);
         const reply = await db.prisma.privateResponse.findUniqueOrThrow({ where: { interactionId: detail.id } });
         const scheduled = await job(reply.responseId);
-        assert.equal(scheduled.run_at.getTime(), reply.createdAt.getTime() + replyLifetime);
+        assert.equal(reply.tokenExpiresAt.getTime(), detail.createdTimestamp + 15 * 60_000);
+        assert.equal(cipher.open(reply.encryptedToken), detail.token);
+        assert.equal(scheduled.run_at.getTime(), reply.createdAt.getTime() + 60_000);
         const linkedRecords = async () => (await db.prisma.privateResponseRecord.findMany({
             where: { responseId: reply.responseId }, select: { recordId: true },
         })).map(link => link.recordId);
