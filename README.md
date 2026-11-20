@@ -29,16 +29,16 @@ npm start
 
 ## 배포
 
-GitHub Actions는 `main`에 변경이 들어오면 GHCR에 이미지를 게시하고, VM B에서 그 이미지의 다이제스트로 [Compose 프로젝트](compose.production.yaml)를 갱신한다. VM B가 사설망에 있으면 VM A를 SSH 점프 호스트로 사용할 수 있다. 봇이 VM B에서 Discord Gateway에 직접 연결하므로 Nginx에 봇용 HTTP 경로를 추가할 필요가 없다.
+GitHub Actions는 `main`에 변경이 들어오면 GHCR에 이미지를 게시하고, VM B에 직접 SSH로 접속해 그 이미지의 다이제스트로 [Compose 프로젝트](compose.production.yaml)를 갱신한다. 봇은 VM B에서 Discord Gateway에 직접 연결한다.
 
 ### VM B
 
 1. Docker Engine과 Compose 플러그인을 설치한다. GitHub Actions가 접속할 배포 계정에서 `docker info`와 `docker compose version`을 실행해 권한과 설치 상태를 확인한다. VM B에서 DNS와 Docker Hub, GHCR, Discord로 나가는 HTTPS 연결을 허용한다.
-2. 배포 계정으로 `~/discord-deploy`에 `postgres.env`와 `bot.env`를 만든다. 아래 초기화는 **새 디렉터리에 한 번** 실행한다. 생성 후 `bot.env`에 실제 Discord 토큰과 앱 ID를 채운다. 운영 환경에 기존 정산 DB나 응답 암호화 키가 있다면 배포 전 그 데이터를 보존하고 키를 이어서 사용한다.
+2. `discord` 배포 계정의 `~/discord`에 `postgres.env`와 `bot.env`를 만든다. 아래 초기화는 **새 디렉터리에 한 번** 실행한다. 생성 후 `bot.env`에 실제 Discord 토큰과 앱 ID를 채운다. 운영 환경에 기존 정산 DB나 응답 암호화 키가 있다면 배포 전 그 데이터를 보존하고 키를 이어서 사용한다.
 
    ```sh
-   install -d -m 700 "$HOME/discord-deploy"
-   cd "$HOME/discord-deploy"
+   install -d -m 700 "$HOME/discord"
+   cd "$HOME/discord"
    (
      set -euC
      umask 077
@@ -54,21 +54,19 @@ GitHub Actions는 `main`에 변경이 들어오면 GHCR에 이미지를 게시�
    PostgreSQL 데이터는 `discord-settlement_postgres-data` 볼륨에 저장된다. 한 서버에만 명령을 등록하려면 `bot.env`에 `DISCORD_GUILD_ID`를 추가한다. 배포 설정과 DB 백업은 함께 관리한다.
 3. 첫 배포 전 기존 `docker run`으로 만든 `discord-bot`이 실행 중이라면 `docker stop discord-bot`으로 멈춘다. 기존 컨테이너는 첫 배포를 확인할 때까지 보관할 수 있다.
 
-### VM A 및 GitHub Actions
+### GitHub Actions
 
 | GitHub Actions 시크릿 | 값 |
 | --- | --- |
-| `GCE_IP`, `GCE_USERNAME` | VM B의 SSH 주소와 배포 계정. 점프 호스트를 쓰면 VM A에서 닿는 VM B 사설 IP를 입력한다. |
+| `GCE_IP`, `GCE_USERNAME` | GitHub Actions에서 접속할 수 있는 VM B의 SSH 주소와 배포 계정 `discord`. |
 | `GCE_SSH_SECRET_KEY`, `GCE_SSH_FINGERPRINT` | VM B 계정에 등록한 배포용 키의 개인 키와 VM B SSH 서버 호스트 키 지문. |
-| `GCE_PROXY_HOST`, `GCE_PROXY_USERNAME` | VM B로 직접 SSH 접속할 수 없을 때 사용하는 VM A의 SSH 주소와 계정. |
-| `GCE_PROXY_SSH_KEY`, `GCE_PROXY_FINGERPRINT` | VM A 계정에 등록한 점프 호스트용 키의 개인 키와 VM A SSH 서버 호스트 키 지문. |
 
-배포 키의 공개 키는 해당 계정의 `~/.ssh/authorized_keys`에 등록한다. 각 VM에서 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`로 호스트 키의 `SHA256:…` 지문을 확인한다. 점프 호스트를 쓰는 경우 VM A에서 VM B의 SSH 포트로 전달을 허용하고 VM B의 SSH 인바운드를 VM A 사설 IP로 제한한다. 워크플로는 SSH 포트 22를 사용한다. PostgreSQL과 봇 포트는 호스트에 공개하지 않는다.
+배포 키의 공개 키는 `discord` 계정의 `~/.ssh/authorized_keys`에 등록한다. VM B에서 SSH Action이 협상하는 호스트 키의 `SHA256:…` 지문을 확인한다. 기본 Ubuntu 구성에서 ECDSA 호스트 키를 제공하면 `sudo ssh-keygen -E sha256 -lf /etc/ssh/ssh_host_ecdsa_key.pub`를 사용한다. VM B는 GitHub Actions에서 SSH 포트 22로 접속할 수 있어야 한다.
 
 VM 준비를 마친 뒤 릴리스 PR을 `main`에 머지한다. CD는 PostgreSQL과 Discord Gateway 준비 상태를 확인한다. 이후 VM B에서 아래 명령으로 컨테이너 상태와 기동 로그를 볼 수 있다.
 
 ```sh
-cd "$HOME/discord-deploy"
+cd "$HOME/discord"
 docker compose --env-file image.env ps
 docker compose --env-file image.env logs --tail 100 bot
 ```

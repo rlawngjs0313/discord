@@ -26,17 +26,8 @@ jobs:
       - name: Check deployment settings
         env:
           TARGET_FINGERPRINT: ${{ secrets.GCE_SSH_FINGERPRINT }}
-          PROXY_HOST: ${{ secrets.GCE_PROXY_HOST }}
-          PROXY_USER: ${{ secrets.GCE_PROXY_USERNAME }}
-          PROXY_KEY: ${{ secrets.GCE_PROXY_SSH_KEY }}
-          PROXY_FINGERPRINT: ${{ secrets.GCE_PROXY_FINGERPRINT }}
         run: |
           : "${TARGET_FINGERPRINT:?Set GCE_SSH_FINGERPRINT}"
-          if [ -n "$PROXY_HOST" ]; then
-            : "${PROXY_USER:?Set GCE_PROXY_USERNAME}"
-            : "${PROXY_KEY:?Set GCE_PROXY_SSH_KEY}"
-            : "${PROXY_FINGERPRINT:?Set GCE_PROXY_FINGERPRINT}"
-          fi
           printf 'COMPOSE_FILE_B64=%s\n' "$(base64 -w0 compose.production.yaml)" >> "$GITHUB_ENV"
 
       - name: Log in to the Container registry
@@ -81,15 +72,11 @@ jobs:
           username: ${{ secrets.GCE_USERNAME }}
           key: ${{ secrets.GCE_SSH_SECRET_KEY }}
           fingerprint: ${{ secrets.GCE_SSH_FINGERPRINT }}
-          proxy_host: ${{ secrets.GCE_PROXY_HOST }}
-          proxy_username: ${{ secrets.GCE_PROXY_USERNAME }}
-          proxy_key: ${{ secrets.GCE_PROXY_SSH_KEY }}
-          proxy_fingerprint: ${{ secrets.GCE_PROXY_FINGERPRINT }}
           command_timeout: 8m
           envs: GHCR_TOKEN,GHCR_USER,BOT_IMAGE,COMPOSE_FILE_B64
           script: |
             set -eu
-            cd "$HOME/discord-deploy"
+            cd "$HOME/discord"
             test -r bot.env
             test -r postgres.env
             docker info >/dev/null
