@@ -1,0 +1,101 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model SettlementPost {
+  postId   String             @id @map("post_id")
+  guildId  String             @map("guild_id")
+  forumId  String             @map("forum_id")
+  records  SettlementRecord[]
+  replies  PrivateResponse[]
+
+  @@map("settlement_posts")
+}
+
+model SettlementRecord {
+  recordId            String                  @id @default(uuid()) @db.Uuid @map("record_id")
+  postId              String                  @map("post_id")
+  creatorId           String                  @map("creator_id")
+  createInteractionId String                  @unique @map("create_interaction_id")
+  totalWon            BigInt                  @map("total_won")
+  version             Int                     @default(1)
+  createdAt           DateTime                @default(now()) @db.Timestamptz(3) @map("created_at")
+  updatedAt           DateTime                @updatedAt @db.Timestamptz(3) @map("updated_at")
+  cancelledAt         DateTime?               @db.Timestamptz(3) @map("cancelled_at")
+  post                SettlementPost          @relation(fields: [postId], references: [postId])
+  shares              SettlementShare[]
+  replies             PrivateResponseRecord[]
+
+  @@index([postId, createdAt(sort: Desc), recordId(sort: Desc)])
+  @@map("settlement_records")
+}
+
+model SettlementShare {
+  recordId String           @db.Uuid @map("record_id")
+  userId   String           @map("user_id")
+  shareWon BigInt           @map("share_won")
+  record   SettlementRecord @relation(fields: [recordId], references: [recordId], onDelete: Cascade)
+
+  @@id([recordId, userId])
+  @@index([userId, recordId])
+  @@map("settlement_shares")
+}
+
+model UserBankAccount {
+  userId                 String   @id @map("user_id")
+  bankCode               String   @map("bank_code")
+  formattedAccountNumber String   @map("formatted_account_number")
+  accountHolder          String   @map("account_holder")
+  version                Int      @default(1)
+  updatedAt              DateTime @updatedAt @db.Timestamptz(3) @map("updated_at")
+
+  @@map("user_bank_accounts")
+}
+
+model PrivateResponse {
+  responseId        String                   @id @default(uuid()) @db.Uuid @map("response_id")
+  interactionId     String                   @unique @map("interaction_id")
+  ownerId           String                   @map("owner_id")
+  postId            String?                  @map("post_id")
+  scopePostId       String?                  @map("scope_post_id")
+  commandKind       String                   @map("command_kind")
+  encryptedToken    Bytes?                   @map("encrypted_token")
+  createdAt         DateTime                 @db.Timestamptz(3) @map("created_at")
+  scheduledDeleteAt DateTime                 @db.Timestamptz(3) @map("scheduled_delete_at")
+  tokenExpiresAt    DateTime                 @db.Timestamptz(3) @map("token_expires_at")
+  state             String                   @default("active")
+  post              SettlementPost?          @relation(fields: [postId], references: [postId], onDelete: SetNull)
+  accounts          PrivateResponseAccount[]
+  records           PrivateResponseRecord[]
+
+  @@index([scopePostId, ownerId, commandKind])
+  @@index([tokenExpiresAt])
+  @@map("private_responses")
+}
+
+model PrivateResponseAccount {
+  responseId    String          @db.Uuid @map("response_id")
+  accountUserId String          @map("account_user_id")
+  response      PrivateResponse @relation(fields: [responseId], references: [responseId], onDelete: Cascade)
+
+  @@id([responseId, accountUserId])
+  @@index([accountUserId, responseId])
+  @@map("private_response_accounts")
+}
+
+model PrivateResponseRecord {
+  responseId String           @db.Uuid @map("response_id")
+  recordId   String           @db.Uuid @map("record_id")
+  response   PrivateResponse  @relation(fields: [responseId], references: [responseId], onDelete: Cascade)
+  record     SettlementRecord @relation(fields: [recordId], references: [recordId], onDelete: Cascade)
+
+  @@id([responseId, recordId])
+  @@index([recordId, responseId])
+  @@map("private_response_records")
+}

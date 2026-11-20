@@ -1,114 +1,6 @@
-# Project Overview: Discord Bot with GCP CI/CD
+# Project Overview
 
-This project is a simple Discord bot built with Node.js and discord.js. It features a fully automated CI/CD pipeline using GitHub Actions to deploy the bot as a containerized application to **Google Compute Engine (GCE)**.
-
-## Technologies
-- **Runtime:** Node.js (v20+)
-- **Library:** discord.js (v14)
-- **Containerization:** Docker
-- **CI/CD:** GitHub Actions
-- **Cloud Provider:** Google Cloud Platform (GCP)
-- **Hosting:** Google Compute Engine (GCE)
-
-## Git Branching Strategy
-We follow a modified Git Flow strategy:
-- **main:** Production-ready branch. Only merges from develop are allowed. Pushes to this branch trigger the **CD (Deploy)** pipeline.
-- **develop:** Integration branch for features. Stability is verified here. PRs to this branch trigger the **CI (Test)** pipeline.
-- **Feat/#{issue-number}:** Feature branches. Developers work here and merge into develop once complete.
-- **Refactor/#{issue-number}:** Refactoring branches.
-
-## CI/CD Workflow
-
-### 1. CI Pipeline (Test)
-- **Trigger:** Pull Request to develop.
-- **Action:**
-  - Installs dependencies.
-  - Runs automated tests using jest.
-- **Purpose:** Ensure new features don't break existing functionality and maintain code quality before integration.
-
-### 2. CD Pipeline (Deploy)
-- **Trigger:** Push to main.
-- **Action:**
-  - Authenticates with Google Cloud.
-  - Builds a Docker image and pushes it to Artifact Registry.
-  - Updates the GCE instance container with the new image.
-- **Purpose:** Automated deployment of stable, tested code to the production environment.
-
----
-
-## Building and Running
-
-### Prerequisites
-- Node.js installed locally.
-- A Discord Bot Token (from the Discord Developer Portal).
-- A GCP project with a GCE instance configured to run containers.
-
-### Local Setup
-1.  Install dependencies:
-    \`\`\`bash
-    npm install
-    \`\`\`
-2.  Create a .env file and add your configuration:
-    \`\`\`env
-    # Discord Bot Settings
-    DISCORD_TOKEN=your_bot_token_here
-    DISCORD_CLIENT_ID=your_client_id_here
-    DISCORD_CLIENT_SECRET=your_client_secret_here
-    DISCORD_REDIRECT_URI=http://localhost:8000/oauth/callback
-
-    # Web Server Settings
-    PORT=8000
-    COOKIE_SECRET=your_random_secret_here (min 32 chars recommended)
-    NODE_ENV=development
-
-    # Scheduler Settings (Optional)
-    DISCORD_CHANNEL_ID=your_target_channel_id
-    SCHEDULER_CHANNEL_NAME=깡-통
-    SCHEDULER_GIF_URL=https://giphy.com/...
-    \`\`\`
-3.  Start the bot locally:
-    \`\`\`bash
-    npm start
-    \`\`\`
-
-### Containerization
-To build and run the Docker container locally:
-\`\`\`bash
-docker build -t discord-bot .
-docker run --env-file .env discord-bot
-\`\`\`
-
----
-
-## Development Conventions
-
-### Coding Style
-- Use **CommonJS** modules (require/exports).
-- Use **async/await** for asynchronous operations.
-- Keep environment variables in .env and never commit them to the repository.
-
-### CI/CD Requirements
-For the GitHub Actions workflow to succeed, the following secrets must be configured in the GitHub repository:
-- GCP_PROJECT_ID: Your Google Cloud Project ID.
-- GCP_WIF_PROVIDER: The full identifier of the Workload Identity Pool provider.
-- GCP_WIF_SERVICE_ACCOUNT: The email address of the GCP Service Account.
-- DISCORD_TOKEN: The Discord bot token.
-- DISCORD_CLIENT_ID: The Discord application Client ID.
-- DISCORD_CLIENT_SECRET: The Discord application Client Secret.
-- DISCORD_REDIRECT_URI: The OAuth2 redirect URI (e.g., http://GCE_IP/oauth/callback).
-- COOKIE_SECRET: A secret string used to sign cookies for security (OAuth2 state validation).
-- GCE_INSTANCE: The name of the target GCE instance.
-
-### GCE Instance Setup Hint
-The GCE instance should be created with the "Deploy a container image to this VM instance" option enabled.
-\`\`\`bash
-gcloud compute instances create-with-container INSTANCE_NAME \
-    --container-image=gcr.io/google-containers/pause \
-    --zone=us-central1-a \
-    --scopes=https://www.googleapis.com/auth/cloud-platform
-\`\`\`
-
----
+See [README.md](README.md) for the forum settlement bot, database, and setup.
 
 ## Gemini CLI Development Rules & Workflow
 
@@ -118,18 +10,25 @@ gcloud compute instances create-with-container INSTANCE_NAME \
 3. **Double-Check:** Rigorously verify all changes to prevent deployment issues.
 
 ### 📋 Commit Message Convention
-|     Gitmoji     | Description |
-|:---------------:| - |
-|   ✨ feat:    | 새로운 기능 추가 |
-|   🐛 fix:     | 버그 수정 |
-|   📝 docs:    | 문서 추가, 수정, 삭제 |
-|   ✅ test:    | 테스트 코드 추가, 수정, 삭제 |
-|  💄 style:    | 코드 형식 변경 |
-| ♻️ refactor:  | 코드 리팩토링 |
-|   ⚡️ perf:    | 성능 개선 |
-|    💚 ci:     | CI 관련 설정 수정 |
-|  🚀 chore:    | 기타 변경사항 |
-|  🔥 remove:️   | 코드 및 파일 제거 |
+
+커밋 제목은 `<이모지> <유형>: <한국어 변경 요약>` 형식으로 통일합니다. 아래 표의 이모지와 유형을 짝지어 사용하고, 무엇을 바꿨는지 한 줄로 적습니다.
+
+| 접두사 | 변경 유형 |
+| --- | --- |
+| ✨ feat: | 새로운 기능 추가 |
+| 🐛 fix: | 버그 수정 |
+| 📝 docs: | 문서 추가, 수정, 삭제 |
+| ✅ test: | 테스트 코드 추가, 수정, 삭제 |
+| 💄 style: | 코드 형식 변경 |
+| ♻️ refactor: | 코드 리팩토링 |
+| ⚡️ perf: | 성능 개선 |
+| 💚 ci: | CI 관련 설정 수정 |
+| 🚀 chore: | 기타 변경사항 |
+| 🔥 remove: | 코드 및 파일 제거 |
+
+- 커밋 하나는 독립적으로 검토하고 되돌릴 수 있는 작업 하나에 대응합니다. 같은 변경을 검증하는 테스트와 설명하는 문서는 함께 담습니다.
+- 목적이 다른 변경은 별도 커밋으로 나눕니다. 커밋 전에 스테이징 내용을 확인하고 이번 작업에 해당하는 변경만 포함합니다.
+- 예시 `🐛 fix: 정산세부 페이지를 기존 비공개 답장에서 갱신`
 
 ### 🛠 Development Workflow
 
@@ -138,14 +37,14 @@ gcloud compute instances create-with-container INSTANCE_NAME \
 1. **이슈 생성:** 반드시 `gh issue create --template "파일명"`을 사용하여 성격에 맞는 템플릿으로 이슈를 생성합니다. (예: `gh issue create --template "✨--feat--기능-추가.md"`)
     - **주의:** 만약 CLI에서 템플릿 선택이 모호할 경우, `.github/ISSUE_TEMPLATE/` 내의 파일명을 정확히 지정합니다.
 2. **이슈 번호 확인:** 생성된 이슈 번호 추출 및 기억.
-3. **브랜치 생성:** develop 브랜치 베이스로 Feat/#번호 또는 Refactor/#번호 브랜치 생성.
-4. **체크아웃:** 생성된 브랜치로 전환.
-5. **개발 시작:** 해당 브랜치에서 기능 구현.
+3. **브랜치 이름 확정 및 생성:** 새 작업을 시작할 때 이름을 정하고, `develop`을 기준으로 `feat/#<이슈번호>-<작업요약>` 또는 `fix/#<이슈번호>-<작업요약>` 브랜치를 만듭니다. 기능 작업은 `feat`, 버그 수정은 `fix`를 사용하고, 작업 요약은 공백 없이 하이픈으로 연결합니다. 예시 `fix/#27-정산세부-페이지-갱신`
+4. **체크아웃:** 생성한 브랜치로 전환합니다.
+5. **작업:** 전환한 브랜치에서 변경을 구현하고 검증합니다. 같은 작업의 후속 수정, 리뷰 대응, 추가 커밋도 처음 정한 이름의 브랜치에서 진행합니다.
 
 #### Phase 2: Finalization (Cleanup & Review)
 1. **테스트 코드 작성:** 비즈니스 로직 및 예외 케이스 검증.
-2. **작업 단위 커밋:** 상기 커밋 컨벤션을 준수하여 커밋.
-3. **테스트 통과 확인:** `npm test`를 통한 모든 테스트 통과 확인.
+2. **테스트 통과 확인:** `npm test`를 통한 모든 테스트 통과 확인.
+3. **작업 단위 커밋:** 작업한 브랜치에서 검증을 마친 변경을 작업 단위로 나누고 위 커밋 메시지 형식으로 커밋합니다.
 4. **브랜치 확인 및 푸시:** 올바른 브랜치인지 확인 후 원격 저장소에 푸시.
 5. **PR 생성:** 반드시 `gh pr create --template "pull_request_template.md"` (또는 해당 프로젝트의 PR 템플릿 경로)를 사용하여 `.github/pull_request_template.md`의 형식을 갖추어 develop 브랜치로 PR을 생성합니다.
     - **본문:** 반드시 `Closes #이슈번호` 키워드를 포함하여 머지 시 이슈가 자동으로 닫히도록 합니다.
