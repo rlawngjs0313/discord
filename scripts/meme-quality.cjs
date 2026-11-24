@@ -35,8 +35,8 @@ async function main() {
         if (index > 0) await wait(7_000);
         const start = performance.now();
         try {
-            const transcript = lines.map((text, i) => `<${i % 2 ? 'B' : 'A'}>: ${text}`).join('\n');
-            const actual = await selector.choose(transcript, [], candidates);
+            const turns = lines.map((text, i) => ({ number: i + 1, speaker: i % 2 ? 'B' : 'A', text, imageLabels: [] }));
+            const actual = await selector.choose({ turns }, [], candidates);
             const match = expected.includes(actual);
             completed++;
             if (match) correct++;

@@ -12,7 +12,7 @@ const historyError = '이 채널의 메시지 기록을 읽을 수 없어요.';
 const analysisError = '대화에 어울리는 밈을 고르는 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.';
 const publishError = '밈을 보내지 못했어요. 잠시 후 다시 시도해 주세요.';
 
-function searchPreview({ query, candidates }: MemeSearchResults, outcome: string): InteractionEditReplyOptions {
+function searchPreview({ query, messageNumbers, candidates }: MemeSearchResults, outcome: string): InteractionEditReplyOptions {
     const lines = candidates.map(({ id, title, preview }) =>
         `#${id} · ${escapeMarkdown(title.replace(/\s+/g, ' ').slice(0, 120)) || '검색 이미지'}${preview ? '' : ' (썸네일 없음)'}`);
     const files = candidates.flatMap(({ id, title, preview }) => {
@@ -25,7 +25,10 @@ function searchPreview({ query, candidates }: MemeSearchResults, outcome: string
         }];
     });
     return {
-        content: [`**검색어** · ${escapeMarkdown(query)}`, ...lines, '', outcome].join('\n'),
+        content: [
+            `**대화 흐름** · ${messageNumbers.join(', ')}번 발언`,
+            `**검색어** · ${escapeMarkdown(query)}`, ...lines, '', outcome,
+        ].join('\n'),
         files, allowedMentions: { parse: [] },
     };
 }
@@ -69,7 +72,7 @@ export async function sendMeme(interaction: ChatInputCommandInteraction, select?
 
     let selection: Awaited<ReturnType<MemeSelector>>;
     try {
-        const { transcript, images, unavailableImages } = await buildMemeContext(history);
+        const { conversation, transcript, images, unavailableImages } = await buildMemeContext(history);
         console.info('Discord meme history', JSON.stringify({
             interactionId: interaction.id, channelId: interaction.channelId,
             messageIds: messages.map(message => message.id), transcript,
@@ -77,14 +80,15 @@ export async function sendMeme(interaction: ChatInputCommandInteraction, select?
             images: images.map(image => image.label), unavailableImages,
         }));
         if (!messages.length) return await interaction.editReply(noMeme);
-        selection = showSearchPreview ? await select(transcript, images, captureSearch) : await select(transcript, images);
+        selection = showSearchPreview ? await select(conversation, images, captureSearch) : await select(conversation, images);
     } catch (error) {
         const status = error instanceof Error && /^(Brave|Gemini) HTTP \d{3}$/.test(error.message) ? error.message : undefined;
         console.error('Discord meme selection failed.', status ?? 'Unexpected error');
         return await finish(analysisError);
     }
     console.info('Discord meme search', JSON.stringify({
-        interactionId: interaction.id, query: selection.query, resultId: selection.resultId, downloaded: Boolean(selection.file),
+        interactionId: interaction.id, query: selection.query, messageNumbers: selection.messageNumbers,
+        resultId: selection.resultId, downloaded: Boolean(selection.file),
     }));
     if (selection.resultId === null) return await finish(noMeme);
     if (!selection.file) return await finish(publishError, selection.resultId);

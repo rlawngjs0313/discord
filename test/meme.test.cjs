@@ -11,10 +11,14 @@ const { parsePastedMessages } = require('../dist/domains/meme/pasted');
 const modelResponse = (value) => Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [
     { text: '{"query":"unrelated"}', thought: true }, { text: JSON.stringify(value) },
 ] } }] });
-const noSelection = { query: null, resultId: null, file: null };
+const noSelection = { query: null, messageNumbers: [], resultId: null, file: null };
 const imageSelection = (name, description) => ({
-    query: 'test reaction meme', resultId: '1', file: { name, description, attachment: Buffer.from([1, 2, 3]) },
+    query: 'test reaction meme', messageNumbers: [1, 2], resultId: '1',
+    file: { name, description, attachment: Buffer.from([1, 2, 3]) },
 });
+const turn = (number, speaker, text, imageLabels = []) => ({ number, speaker, text, imageLabels });
+const sampleConversation = { turns: [turn(1, '민서', '이제 어떡하지ㅋㅋ')] };
+const planSearch = (...messageNumbers) => ({ query: 'reaction meme', messageNumbers: new Set(messageNumbers) });
 
 test('registers the meme command only when enabled', async t => {
     const put = t.mock.method(REST.prototype, 'put', async () => []);
@@ -24,12 +28,18 @@ test('registers the meme command only when enabled', async t => {
     assert.equal(put.mock.calls[1].arguments[1].body.some(command => command.name === '밈'), true);
 });
 
-test('sends dialogue images, searches the generated keywords, and downloads the selected GIF', async t => {
-    const responses = [modelResponse({ query: 'celebration reaction gif' }), modelResponse({ resultId: '1' })];
+test('ranks candidates using only the latest conversation flow and its images', async t => {
+    const responses = [modelResponse({ messageNumbers: [4, 2, 4], query: 'celebration reaction gif' }), modelResponse({ resultId: '1' })];
     const request = t.mock.method(global, 'fetch', async () => responses.shift());
-    const conversation = '<민서>: 과제 끝났다! <사진1>\n<준>: <이모티콘1>';
+    const conversation = { turns: [
+        turn(1, '준', '버스가 또 안 오네 <사진1>', ['사진1']),
+        turn(2, '민서', '과제 끝났다! <사진2>', ['사진2']),
+        turn(3, '준', '지난주에도 그 버스 지각했는데'),
+        { ...turn(4, '준', '드디어 <이모티콘1>', ['이모티콘1']), replyTo: 2 },
+    ] };
     const images = [
         { label: '사진1', mimeType: 'image/png', data: 'AA==' },
+        { label: '사진2', mimeType: 'image/png', data: 'Aw==' },
         { label: '이모티콘1', name: 'celebrate', mimeType: 'image/webp', data: 'AQ==' },
     ];
     const candidate = { id: '1', title: 'Celebration GIF', imageUrl: 'https://example.com/cheers.gif',
@@ -37,7 +47,7 @@ test('sends dialogue images, searches the generated keywords, and downloads the 
     const search = t.mock.fn(async () => [candidate]);
     const download = t.mock.fn(async () => ({ bytes: Buffer.from('GIF89a'), mimeType: 'image/gif', extension: 'gif' }));
     const select = createMemeSelector(createGeminiMemeModel('test-key'), search, download);
-    assert.deepEqual(await select(conversation, images), { query: 'celebration reaction gif', resultId: '1', file: {
+    assert.deepEqual(await select(conversation, images), { query: 'celebration reaction gif', messageNumbers: [2, 4], resultId: '1', file: {
         attachment: Buffer.from('GIF89a'), name: 'meme.gif', description: candidate.title,
     } });
     assert.deepEqual(search.mock.calls.map(call => call.arguments), [['celebration reaction gif']]);
@@ -49,31 +59,49 @@ test('sends dialogue images, searches the generated keywords, and downloads the 
     const body = JSON.parse(options.body);
     const [part, ...media] = body.contents[0].parts;
     const input = JSON.parse(part.text);
-    assert.equal(input.conversation, conversation);
+    assert.deepEqual(input.conversation, conversation);
     assert.deepEqual(media, [
         { text: '사진1' }, { inlineData: { mimeType: 'image/png', data: 'AA==' } },
+        { text: '사진2' }, { inlineData: { mimeType: 'image/png', data: 'Aw==' } },
         { text: '이모티콘1 (celebrate)' }, { inlineData: { mimeType: 'image/webp', data: 'AQ==' } },
     ]);
-    assert.deepEqual(body.generationConfig.responseJsonSchema.required, ['query']);
+    assert.deepEqual(body.generationConfig.responseJsonSchema.required, ['messageNumbers', 'query']);
     const selectionBody = JSON.parse(request.mock.calls[1].arguments[1].body);
-    assert.deepEqual(JSON.parse(selectionBody.contents[0].parts[0].text).candidates, [{ id: '1', title: candidate.title }]);
-    assert.deepEqual(selectionBody.contents[0].parts.slice(-2), [
+    const [selectionInput, ...selectionMedia] = selectionBody.contents[0].parts;
+    assert.deepEqual(JSON.parse(selectionInput.text), {
+        conversation: { turns: [conversation.turns[1], conversation.turns[3]] },
+        candidates: [{ id: '1', title: candidate.title }],
+    });
+    assert.deepEqual(selectionMedia, [
+        { text: '사진2' }, { inlineData: { mimeType: 'image/png', data: 'Aw==' } },
+        { text: '이모티콘1 (celebrate)' }, { inlineData: { mimeType: 'image/webp', data: 'AQ==' } },
         { text: '검색 후보 1' }, { inlineData: { mimeType: 'image/jpeg', data: 'Ag==' } },
     ]);
     assert.deepEqual(selectionBody.generationConfig.responseJsonSchema.properties.resultId.anyOf[0].enum, ['1']);
 });
 
 test('accepts null, handles blocked prompts, and rejects unknown selections', async t => {
-    const replies = [modelResponse({ query: null }), Response.json({ promptFeedback: { blockReason: 'SAFETY' } }),
+    const replies = [modelResponse({ messageNumbers: [], query: null }), Response.json({ promptFeedback: { blockReason: 'SAFETY' } }),
         modelResponse({ resultId: '__proto__' })];
     t.mock.method(global, 'fetch', async () => replies.shift());
     const model = createGeminiMemeModel('test-key');
     const search = t.mock.fn(async () => []);
     const select = createMemeSelector(model, search);
-    assert.deepEqual(await select(''), noSelection);
-    assert.deepEqual(await select(''), noSelection);
+    assert.deepEqual(await select({ turns: [] }), noSelection);
+    assert.deepEqual(await select(sampleConversation), noSelection);
+    assert.deepEqual(await select(sampleConversation), noSelection);
     assert.equal(search.mock.calls.length, 0);
-    await assert.rejects(() => model.choose('', [], [{ id: '1', title: 'Meme', imageUrl: '' }]), /invalid resultId/);
+    await assert.rejects(() => model.choose(sampleConversation, [], [{ id: '1', title: 'Meme', imageUrl: '' }]), /invalid resultId/);
+});
+
+test('stops before searching if the plan omits the latest turn or names an unknown turn', async t => {
+    const replies = [[1], [2, 99]].map(messageNumbers => modelResponse({ messageNumbers, query: 'reaction meme' }));
+    t.mock.method(global, 'fetch', async () => replies.shift());
+    const search = t.mock.fn(async () => []);
+    const select = createMemeSelector(createGeminiMemeModel('test-key'), search);
+    const conversation = { turns: [turn(1, '민서', '버스가 늦어'), turn(2, '준', '나 합격했다!')] };
+    for (let i = 0; i < 2; i++) await assert.rejects(() => select(conversation), /invalid message numbers/);
+    assert.equal(search.mock.calls.length, 0);
 });
 
 test('maps Brave results to unique public image URLs and matching thumbnails', async t => {
@@ -99,16 +127,15 @@ test('maps Brave results to unique public image URLs and matching thumbnails', a
 
 test('skips result ranking for an empty search and reports an unavailable original', async t => {
     const candidate = { id: '2', title: 'Reaction meme', imageUrl: 'https://example.com/reaction.gif' };
-    const query = t.mock.fn(async () => 'reaction meme');
     const choose = t.mock.fn(async () => '2');
     const searchResults = [[], [candidate]];
     const search = t.mock.fn(async () => searchResults.shift());
     const download = t.mock.fn(async () => null);
-    const select = createMemeSelector({ query, choose }, search, download);
-    assert.deepEqual(await select('sample'), { query: 'reaction meme', resultId: null, file: null });
+    const select = createMemeSelector({ planSearch: async () => planSearch(1), choose }, search, download);
+    assert.deepEqual(await select(sampleConversation), { query: 'reaction meme', messageNumbers: [1], resultId: null, file: null });
     assert.equal(choose.mock.calls.length, 0);
     assert.equal(download.mock.calls.length, 0);
-    assert.deepEqual(await select('sample'), { query: 'reaction meme', resultId: '2', file: null });
+    assert.deepEqual(await select(sampleConversation), { query: 'reaction meme', messageNumbers: [1], resultId: '2', file: null });
     assert.equal(download.mock.calls[0].arguments[0], candidate.imageUrl);
 });
 
@@ -154,6 +181,7 @@ test('posts a single silent attachment as a standalone message in the current th
     const first = message(t, '400', '과제 끝났어 https://example.com/private');
     const target = message(t, '403', '이제 쉬자 <@101>', {
         type: MessageType.Reply, author: { id: '102', displayName: '계정 표시 이름' }, member: { displayName: '준' },
+        reference: { messageId: '400' },
     });
     const bot = message(t, '410', '봇의 답장', { author: { id: '103', bot: true } });
     const hook = message(t, '409', '웹훅 메시지', { webhookId: '104' });
@@ -165,7 +193,9 @@ test('posts a single silent attachment as a standalone message in the current th
     await commandHandler(undefined, undefined, select)(interaction);
     assert.deepEqual(interaction.deferReply.mock.calls[0].arguments, [{ flags: MessageFlags.Ephemeral }]);
     assert.deepEqual(interaction.channel.messages.fetch.mock.calls[0].arguments, [{ before: '500', limit: 10, cache: false }]);
-    assert.deepEqual(select.mock.calls[0].arguments, ['<민서>: 과제 끝났어 [링크]\n<준>: 이제 쉬자 [멘션]', []]);
+    assert.deepEqual(select.mock.calls[0].arguments, [{ turns: [
+        turn(1, '민서', '과제 끝났어 [링크]'), { ...turn(2, '준', '이제 쉬자 [멘션]'), replyTo: 1 },
+    ] }, []]);
     assert.equal(first.reply.mock.calls.length, 0);
     assert.equal(target.reply.mock.calls.length, 0);
     assert.equal(interaction.channel.send.mock.calls.length, 1);
@@ -177,7 +207,7 @@ test('posts a single silent attachment as a standalone message in the current th
     assert.equal(interaction.editReply.mock.calls.length, 0);
     assert.equal(log.mock.calls[1].arguments[0], 'Discord meme search');
     assert.deepEqual(JSON.parse(log.mock.calls[1].arguments[1]), {
-        interactionId: '500', query: 'test reaction meme', resultId: '1', downloaded: true,
+        interactionId: '500', query: 'test reaction meme', messageNumbers: [1, 2], resultId: '1', downloaded: true,
     });
 });
 
@@ -189,7 +219,7 @@ test('shows the search thumbnails and selected number only in the deferred priva
         { id: '2', title: '당황하는 표정', imageUrl: 'https://example.com/second.gif',
             preview: { label: '검색 후보 2', mimeType: 'image/jpeg', data: 'AQID' } },
     ];
-    const model = { query: async () => '당황하는 짤', choose: async () => '2' };
+    const model = { planSearch: async () => ({ ...planSearch(1), query: '당황하는 짤' }), choose: async () => '2' };
     const download = t.mock.fn(async () => ({ bytes: Buffer.from('GIF89a'), extension: 'gif' }));
     const select = createMemeSelector(model, async () => candidates, download);
 
@@ -199,6 +229,7 @@ test('shows the search thumbnails and selected number only in the deferred priva
     assert.equal(interaction.deleteReply.mock.calls.length, 0);
     assert.equal(interaction.editReply.mock.calls.length, 1);
     const [preview] = interaction.editReply.mock.calls[0].arguments;
+    assert.match(preview.content, /대화 흐름\*\* · 1번 발언/);
     assert.match(preview.content, /당황하는 짤\n#1 · 다른 반응 \(썸네일 없음\)\n#2 · 당황하는 표정/);
     assert.match(preview.content, /Gemini 선택 #2.*채널에 게시/);
     assert.deepEqual(preview.files, [{
@@ -214,7 +245,7 @@ test('shows the search thumbnails and selected number only in the deferred priva
 test('keeps the private search results when Gemini finds none of the candidates suitable', async t => {
     t.mock.method(console, 'info', () => {});
     const interaction = command(t, [message(t, '403', '이제 어떡하지ㅋㅋ')]);
-    const model = { query: async () => '당황하는 짤', choose: async () => null };
+    const model = { planSearch: async () => ({ ...planSearch(1), query: '당황하는 짤' }), choose: async () => null };
     const select = createMemeSelector(model, async () => [{
         id: '1', title: '관계없는 이미지', imageUrl: 'https://example.com/image.png',
     }]);
@@ -238,8 +269,8 @@ test('pages past bots until ten user messages are found and logs the chosen hist
     assert.deepEqual(interaction.channel.messages.fetch.mock.calls.map(call => call.arguments[0]), [
         { before: '500', limit: 10, cache: false }, { before: '404', limit: 10, cache: false },
     ]);
-    const transcript = humans.slice(1).map(m => `<민서>: ${m.content}`).join('\n');
-    assert.equal(select.mock.calls[0].arguments[0], transcript);
+    const transcript = humans.slice(1).map((m, i) => `#${i + 1} <민서>: ${m.content}`).join('\n');
+    assert.deepEqual(select.mock.calls[0].arguments[0], { turns: humans.slice(1).map((m, i) => turn(i + 1, '민서', m.content)) });
     assert.deepEqual(JSON.parse(log.mock.calls[0].arguments[1]), {
         interactionId: '500', channelId: '200', messageIds: humans.slice(1).map(m => m.id), transcript,
         images: [], unavailableImages: [],
@@ -284,18 +315,19 @@ test('splits a copied transcript by speaker, resolves local emoji names, and pos
 
     await commandHandler(undefined, undefined, select)(interaction);
 
-    const transcript = [
-        '<민서 민간인>: 맛집 이름만 말할 듯하다가 조용해졌어\n<이모티콘1>',
-        '<지호 민간인>: :cry\\~1: :clap:',
-        '<준 민간인>: 나도몰라',
-        '<지호 민간인>: 뼈해장국은 비선호해서',
-        '<준 민간인>: 사동아닌가',
-        '<지호 민간인>: 맛집을 모르겠노',
-        '<준 민간인>: 옆 동네 친구는 알거같은데',
-        '<민서 민간인>: 알려주는 척 하면서 아는 사람이 없네ㅋㅋ',
-        '<지호 민간인>: 폭탄 돌리기ㅋㅋ',
-    ].join('\n');
-    assert.deepEqual(select.mock.calls[0].arguments, [transcript, [
+    const turns = [
+        turn(1, '민서 민간인', '맛집 이름만 말할 듯하다가 조용해졌어\n<이모티콘1>', ['이모티콘1']),
+        turn(2, '지호 민간인', ':cry\\~1: :clap:'),
+        turn(3, '준 민간인', '나도몰라'),
+        turn(4, '지호 민간인', '뼈해장국은 비선호해서'),
+        turn(5, '준 민간인', '사동아닌가'),
+        turn(6, '지호 민간인', '맛집을 모르겠노'),
+        turn(7, '준 민간인', '옆 동네 친구는 알거같은데'),
+        turn(8, '민서 민간인', '알려주는 척 하면서 아는 사람이 없네ㅋㅋ'),
+        turn(9, '지호 민간인', '폭탄 돌리기ㅋㅋ'),
+    ];
+    const transcript = turns.map(({ number, speaker, text }) => `#${number} <${speaker}>: ${text}`).join('\n');
+    assert.deepEqual(select.mock.calls[0].arguments, [{ turns }, [
         { label: '이모티콘1', name: 'emoji_2', mimeType: 'image/webp', data: 'AQ==' },
     ]]);
     assert.equal(emojisFetch.mock.calls.length, 1);
@@ -318,7 +350,9 @@ test('uses the last ten copied turns and leaves ordinary multiline messages inta
     const pasted = message(t, '402', ['```text', ...turns, '```'].join('\r\n'));
     const select = t.mock.fn(async () => noSelection);
     await commandHandler(undefined, undefined, select)(command(t, [pasted]));
-    assert.equal(select.mock.calls[0].arguments[0], turns.slice(2).map((_, i) => `<화자${i + 2}>: 본문${i + 2}`).join('\n'));
+    assert.deepEqual(select.mock.calls[0].arguments[0], {
+        turns: turns.slice(2).map((_, i) => turn(i + 1, `화자${i + 2}`, `본문${i + 2}`)),
+    });
 });
 
 test('includes a photo-only message, reuses a custom emoji image and logs missing media', async t => {
@@ -343,8 +377,11 @@ test('includes a photo-only message, reuses a custom emoji image and logs missin
     const select = t.mock.fn(async () => imageSelection('meme.jpg', 'Leonardo DiCaprio Cheers'));
     await commandHandler(undefined, undefined, select)(interaction);
 
-    const transcript = '<민서의 닉네임>: 버스 안 와 <이모티콘1> <이모티콘1>\n<민서의 닉네임>: <사진1> <사진2>';
-    assert.deepEqual(select.mock.calls[0].arguments, [transcript, [
+    const transcript = '#1 <민서의 닉네임>: 버스 안 와 <이모티콘1> <이모티콘1>\n#2 <민서의 닉네임>: <사진1> <사진2>';
+    assert.deepEqual(select.mock.calls[0].arguments, [{ turns: [
+        turn(1, '민서의 닉네임', '버스 안 와 <이모티콘1> <이모티콘1>', ['이모티콘1']),
+        turn(2, '민서의 닉네임', '<사진1> <사진2>', ['사진1', '사진2']),
+    ] }, [
         { label: '사진1', name: undefined, mimeType: 'image/png', data: 'AA==' },
         { label: '이모티콘1', name: 'waiting', mimeType: 'image/webp', data: 'AQ==' },
     ]]);
