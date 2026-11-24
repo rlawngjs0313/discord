@@ -27,6 +27,20 @@ npm start
 
 `db:deploy`는 Graphile Worker 스키마를 준비한 뒤 Prisma 마이그레이션을 적용한다. Docker 이미지도 시작할 때 같은 순서로 검사한다.
 
+## 대화 기반 밈 답장
+
+`/밈`은 현재 채널이나 포럼 포스트에서 명령 전 최근 메시지 10개를 조회한다. 사람의 텍스트와 등록된 밈 후보 설명을 Gemini에 한 번 보내고, 선택한 이미지를 마지막 사람 메시지에 공개 답장으로 첨부한다. 어울리는 밈이 없으면 실행자에게만 안내한다. 시작 후보는 [Imgflip의 인기 밈](https://imgflip.com/memetemplates?sort=top-all-time)에서 골랐다. 후보 목록에서 JPEG, PNG, GIF를 사용할 수 있다.
+
+Gemini 선택 품질은 Discord에 접속하지 않고 예시 한국어 대화로 확인할 수 있다. `.env`에 `GEMINI_API_KEY`를 설정한 뒤 실행한다. 기본 모델은 `gemini-3.5-flash-lite`이며 `GEMINI_MODEL`로 바꿀 수 있다.
+
+```sh
+npm run test:meme:quality
+```
+
+실제 채팅을 연결할 때는 사용하는 Gemini 플랜의 데이터 처리 조건과 [Discord 개발자 약관](https://support-dev.discord.com/hc/en-us/articles/8562894815383-Discord-Developer-Terms-of-Service)을 확인한다. Gemini 무료 약관에서는 입력과 응답을 제품 개선에 사용할 수 있다. [Gemini 데이터 사용 약관](https://aistudio.google.com/docs/terms#data-use-unpaid)
+
+기능을 켜려면 `MEME_DISCORD_ENABLED=true`를 설정하고, Discord Developer Portal에서 **Message Content Intent**를 활성화한다. 봇에 채널 보기, 메시지 기록 보기, 메시지 보내기, 파일 첨부 권한을 부여한다. 스레드와 포럼 포스트에서는 스레드에 메시지 보내기 권한이 필요하다. [밈 답장 intent](intent/밈답장-intent.md)
+
 ## 배포
 
 GitHub Actions는 `main`에 변경이 들어오면 GHCR에 이미지를 게시하고, VM B에 직접 SSH로 접속해 그 이미지의 다이제스트로 [Compose 프로젝트](compose.production.yaml)를 갱신한다. 봇은 VM B에서 Discord Gateway에 직접 연결한다.

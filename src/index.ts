@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { Client, Events, GatewayIntentBits } from 'discord.js';
 import { createDatabase } from './database/database';
 import { commandHandler, registerCommands } from './domains/bot/commands';
+import { createGeminiMemeSelector } from './domains/meme/gemini';
 import { tokenCipher } from './domains/replies/store';
 import { startWorker } from './domains/replies/worker';
 
@@ -17,6 +18,8 @@ async function start() {
     const botToken = required('DISCORD_TOKEN');
     const applicationId = required('DISCORD_CLIENT_ID');
     const cipher = tokenCipher(Buffer.from(required('DISCORD_RESPONSE_KEY'), 'base64'));
+    const selectMeme = process.env.MEME_DISCORD_ENABLED === 'true'
+        ? createGeminiMemeSelector(required('GEMINI_API_KEY'), process.env.GEMINI_MODEL || undefined) : undefined;
     const db = createDatabase(url);
     const client = new Client({ intents: [GatewayIntentBits.Guilds] });
     let worker: Awaited<ReturnType<typeof startWorker>> | undefined;
@@ -40,8 +43,8 @@ async function start() {
             process.exitCode = 1;
             void close().catch(() => undefined);
         });
-        await registerCommands(botToken, applicationId, process.env.DISCORD_GUILD_ID);
-        const handle = commandHandler(db, cipher);
+        await registerCommands(botToken, applicationId, process.env.DISCORD_GUILD_ID, Boolean(selectMeme));
+        const handle = commandHandler(db, cipher, selectMeme);
         client.once(Events.ClientReady, () => {
             const readyFile = process.env.DISCORD_READY_FILE;
             if (readyFile) writeFileSync(readyFile, '');
