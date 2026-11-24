@@ -7,7 +7,7 @@ import {
 import type { Database, Tx } from '../../database/database';
 import { deleteAccount, saveAccount } from '../account/accounts';
 import { accountBankName, bankOptions, normalizeAccount } from '../account/bank';
-import { memeCommandName, replyWithMeme } from '../meme/discord';
+import { memeCommandName, sendMeme } from '../meme/discord';
 import type { MemeSelector } from '../meme/gemini';
 import type { TokenCipher } from '../replies/store';
 import { InputError, parseWon, won } from '../settlement/amount';
@@ -28,7 +28,7 @@ const commandBuilders = [
 export async function registerCommands(token: string, applicationId: string, guildId?: string, memeEnabled = false) {
     const rest = new REST().setToken(token);
     const commands = memeEnabled ? [...commandBuilders, new SlashCommandBuilder().setName(memeCommandName)
-        .setDescription('직전 대화에 어울리는 밈을 답장해요.')] : commandBuilders;
+        .setDescription('직전 대화에 어울리는 밈을 보내요.')] : commandBuilders;
     const body = commands.map(command => {
         if (guildId) return command.toJSON();
         return {
@@ -204,7 +204,7 @@ export function commandHandler(db: Database, cipher: TokenCipher, selectMeme?: M
         try {
             if (i.isChatInputCommand()) {
                 if (!i.inGuild()) throw new InputError('서버에서 명령을 실행해 주세요.');
-                if (i.commandName === memeCommandName) return await replyWithMeme(i, selectMeme);
+                if (i.commandName === memeCommandName) return await sendMeme(i, selectMeme);
                 if (i.commandName === '계좌등록') return await i.showModal(bankModal(actor));
                 if (i.commandName === '계좌삭제') {
                     return await send(i, () => notice('등록한 계좌를 삭제할까요?', button('bank-delete:' + actor, '계좌 삭제', ButtonStyle.Danger)));

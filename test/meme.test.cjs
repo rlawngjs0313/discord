@@ -69,14 +69,14 @@ function command(t, messages, { readHistory = true, canReadHistory = true } = {}
         appPermissions: new PermissionsBitField([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessagesInThreads,
             PermissionFlagsBits.AttachFiles, ...guildPermission]),
         memberPermissions: new PermissionsBitField(canReadHistory ? [PermissionFlagsBits.ReadMessageHistory] : []),
-        channel: { type: ChannelType.PublicThread, isThread: () => true, messages: { fetch } },
+        channel: { type: ChannelType.PublicThread, isThread: () => true, messages: { fetch }, send: t.mock.fn(async () => {}) },
         deferReply: t.mock.fn(async () => {}),
         editReply: t.mock.fn(async () => {}),
         deleteReply: t.mock.fn(async () => {}),
     };
 }
 
-test('replies to the latest eligible message in a thread with a single, silent attachment', async t => {
+test('posts a single silent attachment as a standalone message in the current thread', async t => {
     t.mock.method(console, 'info', () => {});
     const first = message(t, '400', '과제 끝났어 https://example.com/private');
     const target = message(t, '403', '이제 쉬자 <@101>', {
@@ -98,9 +98,11 @@ test('replies to the latest eligible message in a thread with a single, silent a
     assert.deepEqual(select.mock.calls[0].arguments, ['<민서>: 과제 끝났어 [링크]\n<준>: 이제 쉬자 [멘션]', []]);
     assert.equal(download.mock.calls.length, 1);
     assert.equal(first.reply.mock.calls.length, 0);
-    assert.deepEqual(target.reply.mock.calls[0].arguments[0], {
+    assert.equal(target.reply.mock.calls.length, 0);
+    assert.equal(interaction.channel.send.mock.calls.length, 1);
+    assert.deepEqual(interaction.channel.send.mock.calls[0].arguments[0], {
         files: [{ attachment: Buffer.from([1, 2, 3]), name: 'toast.jpg', description: 'Leonardo DiCaprio Cheers' }],
-        failIfNotExists: true, allowedMentions: { parse: [], repliedUser: false }, flags: MessageFlags.SuppressNotifications,
+        allowedMentions: { parse: [] }, flags: MessageFlags.SuppressNotifications,
     });
     assert.equal(interaction.deleteReply.mock.calls.length, 1);
     assert.equal(interaction.editReply.mock.calls.length, 0);
@@ -124,7 +126,7 @@ test('pages past bots until ten user messages are found and logs the chosen hist
     });
 });
 
-test('splits a copied transcript by speaker, resolves unique local emoji names, and replies to the paste', async t => {
+test('splits a copied transcript by speaker, resolves local emoji names, and posts a standalone meme', async t => {
     const log = t.mock.method(console, 'info', () => {});
     const older = message(t, '401', '채널의 이전 대화');
     const emojiId = '216154654256398347';
@@ -179,7 +181,8 @@ test('splits a copied transcript by speaker, resolves unique local emoji names, 
     assert.equal(emojisFetch.mock.calls.length, 1);
     assert.equal(download.mock.calls[0].arguments[0], `https://cdn.discordapp.com/emojis/${emojiId}.webp?size=128`);
     assert.equal(older.reply.mock.calls.length, 0);
-    assert.equal(pasted.reply.mock.calls[0].arguments[0].files[0].name, 'laughing-leo.png');
+    assert.equal(pasted.reply.mock.calls.length, 0);
+    assert.equal(interaction.channel.send.mock.calls[0].arguments[0].files[0].name, 'laughing-leo.png');
     assert.deepEqual(JSON.parse(log.mock.calls[0].arguments[1]), {
         interactionId: '500', channelId: '200', messageIds: ['402'], transcript,
         pastedMessageCount: 9, images: ['이모티콘1'], unavailableImages: [],
@@ -231,7 +234,8 @@ test('includes a photo-only message, reuses a custom emoji image and logs missin
     assert.equal(download.mock.calls.filter(call => call.arguments[0].includes('/emojis/')).length, 1);
     assert.equal(download.mock.calls[2].arguments[0], 'https://cdn.discordapp.com/emojis/216154654256398347.webp?size=128');
     assert.equal(text.reply.mock.calls.length, 0);
-    assert.equal(photoOnly.reply.mock.calls[0].arguments[0].files[0].name, 'toast.jpg');
+    assert.equal(photoOnly.reply.mock.calls.length, 0);
+    assert.equal(interaction.channel.send.mock.calls[0].arguments[0].files[0].name, 'toast.jpg');
     assert.deepEqual(memberFetch.mock.calls.map(call => call.arguments[0]), [{ user: '101', cache: false }]);
     assert.deepEqual(JSON.parse(log.mock.calls[0].arguments[1]), {
         interactionId: '500', channelId: '200', messageIds: ['402', '403'], transcript,
@@ -256,5 +260,6 @@ test('keeps no-match feedback private', async t => {
     const interaction = command(t, [target]);
     await commandHandler(undefined, undefined, async () => null)(interaction);
     assert.equal(target.reply.mock.calls.length, 0);
+    assert.equal(interaction.channel.send.mock.calls.length, 0);
     assert.match(interaction.editReply.mock.calls[0].arguments[0], /어울리는 밈을 찾지 못했어요/);
 });
