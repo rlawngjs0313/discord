@@ -3,7 +3,9 @@ import { writeFileSync } from 'node:fs';
 import { Client, Events, GatewayIntentBits } from 'discord.js';
 import { createDatabase } from './database/database';
 import { commandHandler, registerCommands } from './domains/bot/commands';
-import { createGeminiMemeSelector } from './domains/meme/gemini';
+import { createBraveMemeSearch } from './domains/meme/brave';
+import { createGeminiMemeModel } from './domains/meme/gemini';
+import { createMemeSelector } from './domains/meme/selector';
 import { tokenCipher } from './domains/replies/store';
 import { startWorker } from './domains/replies/worker';
 
@@ -18,8 +20,13 @@ async function start() {
     const botToken = required('DISCORD_TOKEN');
     const applicationId = required('DISCORD_CLIENT_ID');
     const cipher = tokenCipher(Buffer.from(required('DISCORD_RESPONSE_KEY'), 'base64'));
-    const selectMeme = process.env.MEME_DISCORD_ENABLED === 'true'
-        ? createGeminiMemeSelector(required('GEMINI_API_KEY'), process.env.GEMINI_MODEL || undefined) : undefined;
+    const memeEnabled = process.env.MEME_DISCORD_ENABLED === 'true';
+    const geminiKey = process.env.GEMINI_API_KEY?.trim();
+    const braveKey = process.env.BRAVE_SEARCH_API_KEY?.trim();
+    const selectMeme = memeEnabled && geminiKey && braveKey
+        ? createMemeSelector(createGeminiMemeModel(geminiKey, process.env.GEMINI_MODEL || undefined), createBraveMemeSearch(braveKey))
+        : undefined;
+    if (memeEnabled && !selectMeme) console.warn('Discord meme search requires GEMINI_API_KEY and BRAVE_SEARCH_API_KEY.');
     const db = createDatabase(url);
     const client = new Client({ intents: [GatewayIntentBits.Guilds] });
     let worker: Awaited<ReturnType<typeof startWorker>> | undefined;
@@ -43,7 +50,7 @@ async function start() {
             process.exitCode = 1;
             void close().catch(() => undefined);
         });
-        await registerCommands(botToken, applicationId, process.env.DISCORD_GUILD_ID, Boolean(selectMeme));
+        await registerCommands(botToken, applicationId, process.env.DISCORD_GUILD_ID, memeEnabled);
         const handle = commandHandler(db, cipher, selectMeme);
         client.once(Events.ClientReady, () => {
             const readyFile = process.env.DISCORD_READY_FILE;

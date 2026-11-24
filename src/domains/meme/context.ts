@@ -3,8 +3,8 @@ import type { MemeImage } from './gemini';
 import { parsePastedMessages } from './pasted';
 
 const contextSize = 10;
-// Base64 and the text of the request must fit within Gemini's 20 MB inline limit.
-const imageBudget = 14 * 1024 * 1024;
+// Leave room for five search thumbnails, base64 overhead, and text in Gemini's 20 MB request.
+const imageBudget = 13 * 1024 * 1024;
 const supportedImageTypes = /^image\/(jpeg|png|webp|heic|heif)(?:;|$)/i;
 const customEmoji = /<a?:([\w-]+):(\d{17,20})>/g;
 const pastedEmoji = /(?<![\w:<]):([\w-]+):(?![\w:>])/g;

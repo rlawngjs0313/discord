@@ -8,7 +8,7 @@ import type { Database, Tx } from '../../database/database';
 import { deleteAccount, saveAccount } from '../account/accounts';
 import { accountBankName, bankOptions, normalizeAccount } from '../account/bank';
 import { memeCommandName, sendMeme } from '../meme/discord';
-import type { MemeSelector } from '../meme/gemini';
+import type { MemeSelector } from '../meme/selector';
 import type { TokenCipher } from '../replies/store';
 import { InputError, parseWon, won } from '../settlement/amount';
 import {

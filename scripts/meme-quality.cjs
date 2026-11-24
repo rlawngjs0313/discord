@@ -1,6 +1,10 @@
 require('dotenv/config');
 const { setTimeout: wait } = require('node:timers/promises');
-const { createGeminiMemeSelector, defaultGeminiModel } = require('../dist/domains/meme/gemini');
+const { createGeminiMemeModel, defaultGeminiModel } = require('../dist/domains/meme/gemini');
+const catalog = require('./meme-quality-catalog.cjs');
+const candidates = Object.entries(catalog).map(([id, { name, description, image }]) => ({
+    id, title: `${name} · ${description}`, imageUrl: image,
+}));
 
 const cases = [
     ['과제 끝난 뒤의 안도', ['드디어 이번 과제 끝냈다', '이제 좀 쉬자'], ['toast']],
@@ -21,7 +25,7 @@ async function main() {
     const key = process.env.GEMINI_API_KEY?.trim();
     if (!key) throw new Error('GEMINI_API_KEY를 프로젝트 .env에 설정해 주세요.');
     const model = process.env.GEMINI_MODEL || defaultGeminiModel;
-    const select = createGeminiMemeSelector(key, model);
+    const selector = createGeminiMemeModel(key, model);
     let correct = 0;
     let completed = 0;
     let errors = 0;
@@ -32,7 +36,7 @@ async function main() {
         const start = performance.now();
         try {
             const transcript = lines.map((text, i) => `<${i % 2 ? 'B' : 'A'}>: ${text}`).join('\n');
-            const actual = await select(transcript);
+            const actual = await selector.choose(transcript, [], candidates);
             const match = expected.includes(actual);
             completed++;
             if (match) correct++;

@@ -1,4 +1,4 @@
-export const memes = {
+module.exports = {
     toast: {
         name: 'Leonardo DiCaprio Cheers', image: 'https://i.imgflip.com/39t1o.jpg',
         description: '잔을 들어 건배한다. 과제 완료, 합격, 성공, 힘든 일을 끝냈을 때의 가벼운 축하에 쓴다.',
@@ -32,5 +32,3 @@ export const memes = {
         description: '잔을 들고 크게 웃는다. 말장난, 웃긴 반전, 다 같이 웃는 가벼운 농담에 쓴다.',
     },
 };
-
-export type MemeId = keyof typeof memes;
