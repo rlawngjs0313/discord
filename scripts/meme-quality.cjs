@@ -31,7 +31,8 @@ async function main() {
         if (index > 0) await wait(7_000);
         const start = performance.now();
         try {
-            const actual = await select(lines.map((text, i) => ({ speaker: i % 2 ? 'B' : 'A', text })));
+            const transcript = lines.map((text, i) => `<${i % 2 ? 'B' : 'A'}>: ${text}`).join('\n');
+            const actual = await select(transcript);
             const match = expected.includes(actual);
             completed++;
             if (match) correct++;

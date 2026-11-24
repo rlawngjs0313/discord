@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { ChannelType, MessageFlags, MessageType, PermissionFlagsBits, PermissionsBitField, REST } = require('discord.js');
+const { ChannelType, Collection, MessageFlags, MessageType, PermissionFlagsBits, PermissionsBitField, REST } = require('discord.js');
 const { commandHandler, registerCommands } = require('../dist/domains/bot/commands');
 const { createGeminiMemeSelector } = require('../dist/domains/meme/gemini');
 
@@ -16,18 +16,27 @@ test('registers the meme command only when enabled', async t => {
     assert.equal(put.mock.calls[1].arguments[1].body.some(command => command.name === '밈'), true);
 });
 
-test('sends a single Gemini request with dialogue, candidate descriptions and a structured selection schema', async t => {
+test('sends dialogue and labeled images together with a structured selection schema', async t => {
     const request = t.mock.method(global, 'fetch', async () => modelResponse('toast'));
-    const conversation = [{ speaker: 'A', text: '과제 끝났다!' }];
-    assert.equal(await createGeminiMemeSelector('test-key')(conversation), 'toast');
+    const conversation = '<민서>: 과제 끝났다! <사진1>\n<준>: <이모티콘1>';
+    const images = [
+        { label: '사진1', mimeType: 'image/png', data: 'AA==' },
+        { label: '이모티콘1', name: 'celebrate', mimeType: 'image/webp', data: 'AQ==' },
+    ];
+    assert.equal(await createGeminiMemeSelector('test-key')(conversation, images), 'toast');
     assert.equal(request.mock.calls.length, 1);
     const [url, options] = request.mock.calls[0].arguments;
     assert.match(url, /gemini-3\.5-flash-lite:generateContent$/);
     assert.equal(options.headers['x-goog-api-key'], 'test-key');
     const body = JSON.parse(options.body);
-    const input = JSON.parse(body.contents[0].parts[0].text);
-    assert.deepEqual(input.conversation, conversation);
+    const [part, ...media] = body.contents[0].parts;
+    const input = JSON.parse(part.text);
+    assert.equal(input.conversation, conversation);
     assert.deepEqual(Object.keys(input.candidates[0]), ['id', 'name', 'description']);
+    assert.deepEqual(media, [
+        { text: '사진1' }, { inlineData: { mimeType: 'image/png', data: 'AA==' } },
+        { text: '이모티콘1 (celebrate)' }, { inlineData: { mimeType: 'image/webp', data: 'AQ==' } },
+    ]);
     assert.ok(body.generationConfig.responseJsonSchema.properties.memeId.anyOf[0].enum.includes('toast'));
 });
 
@@ -35,27 +44,31 @@ test('accepts null, handles blocked prompts, and rejects unknown selections', as
     const replies = [modelResponse(null), Response.json({ promptFeedback: { blockReason: 'SAFETY' } }), modelResponse('__proto__')];
     t.mock.method(global, 'fetch', async () => replies.shift());
     const select = createGeminiMemeSelector('test-key');
-    assert.equal(await select([]), null);
-    assert.equal(await select([]), null);
-    await assert.rejects(() => select([]), /unknown meme ID/);
+    assert.equal(await select(''), null);
+    assert.equal(await select(''), null);
+    await assert.rejects(() => select(''), /unknown meme ID/);
 });
 
 function message(t, id, content, options = {}) {
     return {
-        id, content, type: MessageType.Default, author: { id: '101', bot: false },
+        id, content, type: MessageType.Default, author: { id: '101', bot: false, displayName: '민서' },
+        attachments: new Collection(),
         reply: t.mock.fn(async () => {}), ...options,
     };
 }
 
 function command(t, messages, { readHistory = true, canReadHistory = true } = {}) {
-    const history = new Map(messages.map(m => [m.id, m]));
     const guildPermission = readHistory ? [PermissionFlagsBits.ReadMessageHistory] : [];
+    const fetch = t.mock.fn(async ({ before, limit }) => new Collection(messages
+        .filter(m => BigInt(m.id) < BigInt(before))
+        .sort((a, b) => BigInt(a.id) > BigInt(b.id) ? -1 : 1)
+        .slice(0, limit).map(m => [m.id, m])));
     return {
-        id: '500', user: { id: '501' }, commandName: '밈', isChatInputCommand: () => true, inGuild: () => true,
+        id: '500', channelId: '200', user: { id: '501' }, commandName: '밈', isChatInputCommand: () => true, inGuild: () => true,
         appPermissions: new PermissionsBitField([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessagesInThreads,
             PermissionFlagsBits.AttachFiles, ...guildPermission]),
         memberPermissions: new PermissionsBitField(canReadHistory ? [PermissionFlagsBits.ReadMessageHistory] : []),
-        channel: { type: ChannelType.PublicThread, isThread: () => true, messages: { fetch: t.mock.fn(async () => history) } },
+        channel: { type: ChannelType.PublicThread, isThread: () => true, messages: { fetch } },
         deferReply: t.mock.fn(async () => {}),
         editReply: t.mock.fn(async () => {}),
         deleteReply: t.mock.fn(async () => {}),
@@ -63,8 +76,11 @@ function command(t, messages, { readHistory = true, canReadHistory = true } = {}
 }
 
 test('replies to the latest eligible message in a thread with a single, silent attachment', async t => {
+    t.mock.method(console, 'info', () => {});
     const first = message(t, '400', '과제 끝났어 https://example.com/private');
-    const target = message(t, '403', '이제 쉬자 <@101>', { type: MessageType.Reply, author: { id: '102' } });
+    const target = message(t, '403', '이제 쉬자 <@101>', {
+        type: MessageType.Reply, author: { id: '102', displayName: '계정 표시 이름' }, member: { displayName: '준' },
+    });
     const bot = message(t, '410', '봇의 답장', { author: { id: '103', bot: true } });
     const hook = message(t, '409', '웹훅 메시지', { webhookId: '104' });
     const noText = message(t, '408', '  ');
@@ -78,9 +94,7 @@ test('replies to the latest eligible message in a thread with a single, silent a
     await commandHandler(undefined, undefined, select)(interaction);
     assert.deepEqual(interaction.deferReply.mock.calls[0].arguments, [{ flags: MessageFlags.Ephemeral }]);
     assert.deepEqual(interaction.channel.messages.fetch.mock.calls[0].arguments, [{ before: '500', limit: 10, cache: false }]);
-    assert.deepEqual(select.mock.calls[0].arguments[0], [
-        { speaker: 'A', text: '과제 끝났어 [링크]' }, { speaker: 'B', text: '이제 쉬자 [멘션]' },
-    ]);
+    assert.deepEqual(select.mock.calls[0].arguments, ['<민서>: 과제 끝났어 [링크]\n<준>: 이제 쉬자 [멘션]', []]);
     assert.equal(download.mock.calls.length, 1);
     assert.equal(first.reply.mock.calls.length, 0);
     assert.deepEqual(target.reply.mock.calls[0].arguments[0], {
@@ -89,6 +103,65 @@ test('replies to the latest eligible message in a thread with a single, silent a
     });
     assert.equal(interaction.deleteReply.mock.calls.length, 1);
     assert.equal(interaction.editReply.mock.calls.length, 0);
+});
+
+test('pages past bots until ten user messages are found and logs the chosen history in order', async t => {
+    const log = t.mock.method(console, 'info', () => {});
+    const humans = Array.from({ length: 11 }, (_, i) => message(t, String(400 + i), `대화 ${i}`));
+    const bots = Array.from({ length: 3 }, (_, i) => message(t, String(411 + i), '봇', { author: { bot: true } }));
+    const interaction = command(t, [...humans, ...bots]);
+    const select = t.mock.fn(async () => null);
+    await commandHandler(undefined, undefined, select)(interaction);
+    assert.deepEqual(interaction.channel.messages.fetch.mock.calls.map(call => call.arguments[0]), [
+        { before: '500', limit: 10, cache: false }, { before: '404', limit: 10, cache: false },
+    ]);
+    const transcript = humans.slice(1).map(m => `<민서>: ${m.content}`).join('\n');
+    assert.equal(select.mock.calls[0].arguments[0], transcript);
+    assert.deepEqual(JSON.parse(log.mock.calls[0].arguments[1]), {
+        interactionId: '500', channelId: '200', messageIds: humans.slice(1).map(m => m.id), transcript,
+        images: [], unavailableImages: [],
+    });
+});
+
+test('includes a photo-only message, reuses a custom emoji image and logs missing media', async t => {
+    const log = t.mock.method(console, 'info', () => {});
+    const emoji = '<a:waiting:216154654256398347>';
+    const photoUrl = 'https://cdn.discordapp.com/attachments/200/1/photo.png?ex=signed';
+    const missingUrl = 'https://cdn.discordapp.com/attachments/200/2/missing.jpg?ex=signed';
+    const attachments = new Collection([
+        ['1', { name: 'photo.png', url: photoUrl, contentType: 'image/png', size: 1 }],
+        ['2', { name: 'missing.jpg', url: missingUrl, contentType: 'image/jpeg', size: 1 }],
+    ]);
+    const memberFetch = t.mock.fn(async () => ({ displayName: '민서의 닉네임' }));
+    const guild = { members: { fetch: memberFetch } };
+    const text = message(t, '402', `버스 안 와 ${emoji} ${emoji}`, { guild });
+    const photoOnly = message(t, '403', '', { attachments, guild });
+    const interaction = command(t, [text, photoOnly]);
+    const download = t.mock.method(global, 'fetch', async url => {
+        if (url === missingUrl) return new Response(null, { status: 404 });
+        if (url === photoUrl) return new Response(Buffer.from([0]), { headers: { 'Content-Type': 'image/png' } });
+        if (url === 'https://i.imgflip.com/39t1o.jpg') {
+            return new Response(Buffer.from([2]), { headers: { 'Content-Type': 'image/jpeg' } });
+        }
+        return new Response(Buffer.from([1]), { headers: { 'Content-Type': 'image/webp' } });
+    });
+    const select = t.mock.fn(async () => 'toast');
+    await commandHandler(undefined, undefined, select)(interaction);
+
+    const transcript = '<민서의 닉네임>: 버스 안 와 <이모티콘1> <이모티콘1>\n<민서의 닉네임>: <사진1> <사진2>';
+    assert.deepEqual(select.mock.calls[0].arguments, [transcript, [
+        { label: '사진1', name: undefined, mimeType: 'image/png', data: 'AA==' },
+        { label: '이모티콘1', name: 'waiting', mimeType: 'image/webp', data: 'AQ==' },
+    ]]);
+    assert.equal(download.mock.calls.filter(call => call.arguments[0].includes('/emojis/')).length, 1);
+    assert.equal(download.mock.calls[2].arguments[0], 'https://cdn.discordapp.com/emojis/216154654256398347.webp?size=128');
+    assert.equal(text.reply.mock.calls.length, 0);
+    assert.equal(photoOnly.reply.mock.calls[0].arguments[0].files[0].name, 'toast.jpg');
+    assert.deepEqual(memberFetch.mock.calls.map(call => call.arguments[0]), [{ user: '101', cache: false }]);
+    assert.deepEqual(JSON.parse(log.mock.calls[0].arguments[1]), {
+        interactionId: '500', channelId: '200', messageIds: ['402', '403'], transcript,
+        images: ['사진1', '이모티콘1'], unavailableImages: ['사진2'],
+    });
 });
 
 test('checks history access before any read or model call', async t => {
@@ -103,6 +176,7 @@ test('checks history access before any read or model call', async t => {
 });
 
 test('keeps no-match feedback private', async t => {
+    t.mock.method(console, 'info', () => {});
     const target = message(t, '403', '확인했습니다.');
     const interaction = command(t, [target]);
     await commandHandler(undefined, undefined, async () => null)(interaction);

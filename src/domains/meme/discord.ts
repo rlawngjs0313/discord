@@ -1,7 +1,8 @@
 import {
-    ChannelType, MessageFlags, MessageType, PermissionFlagsBits, type ChatInputCommandInteraction, type Message,
+    ChannelType, MessageFlags, PermissionFlagsBits, type ChatInputCommandInteraction,
 } from 'discord.js';
 import { memes, type MemeId } from './catalog';
+import { buildMemeContext, recentUserMessages } from './context';
 import type { MemeSelector } from './gemini';
 
 export const memeCommandName = '밈';
@@ -11,18 +12,6 @@ const historyError = '이 채널의 메시지 기록을 읽을 수 없어요.';
 const analysisError = '대화에 어울리는 밈을 고르는 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.';
 const publishError = '밈을 답장으로 올리지 못했어요. 잠시 후 다시 시도해 주세요.';
 const imageLimit = 8 * 1024 * 1024;
-
-function dialogue(messages: Message[]) {
-    const speakers = new Map<string, string>();
-    return messages.map(message => {
-        const speaker = speakers.get(message.author.id) ?? String.fromCharCode(65 + speakers.size);
-        speakers.set(message.author.id, speaker);
-        const text = message.content.trim()
-            .replace(/<(?:@!?|@&|#)\d+>/g, '[멘션]')
-            .replace(/https?:\/\/[^\s<>]+/gi, '[링크]');
-        return { speaker, text: Array.from(text).slice(0, 600).join('') };
-    });
-}
 
 async function memeFile(id: MemeId) {
     const meme = memes[id];
@@ -54,17 +43,20 @@ export async function replyWithMeme(interaction: ChatInputCommandInteraction, se
         return await interaction.editReply('이 채널에 밈을 답장으로 올릴 권한이 없어요.');
     }
 
-    const history = await channel.messages.fetch({ before: interaction.id, limit: 10, cache: false }).catch(() => null);
-    if (!history) return await interaction.editReply(historyError);
-    const messages = [...history.values()].filter(message => !message.author.bot && !message.webhookId
-        && (message.type === MessageType.Default || message.type === MessageType.Reply) && message.content.trim());
-    messages.sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+    const messages = await recentUserMessages(channel.messages, interaction.id).catch(() => null);
+    if (!messages) return await interaction.editReply(historyError);
     const target = messages.at(-1);
-    if (!target) return await interaction.editReply(noMeme);
 
     let id: MemeId | null;
     try {
-        id = await select(dialogue(messages));
+        const { transcript, images, unavailableImages } = await buildMemeContext(messages);
+        console.info('Discord meme history', JSON.stringify({
+            interactionId: interaction.id, channelId: interaction.channelId,
+            messageIds: messages.map(message => message.id), transcript,
+            images: images.map(image => image.label), unavailableImages,
+        }));
+        if (!target) return await interaction.editReply(noMeme);
+        id = await select(transcript, images);
     } catch {
         console.error('Discord meme selection failed.');
         return await interaction.editReply(analysisError);
