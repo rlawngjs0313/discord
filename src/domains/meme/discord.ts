@@ -43,16 +43,18 @@ export async function replyWithMeme(interaction: ChatInputCommandInteraction, se
         return await interaction.editReply('이 채널에 밈을 답장으로 올릴 권한이 없어요.');
     }
 
-    const messages = await recentUserMessages(channel.messages, interaction.id).catch(() => null);
-    if (!messages) return await interaction.editReply(historyError);
+    const history = await recentUserMessages(channel.messages, interaction.id).catch(() => null);
+    if (!history) return await interaction.editReply(historyError);
+    const { messages, pasted } = history;
     const target = messages.at(-1);
 
     let id: MemeId | null;
     try {
-        const { transcript, images, unavailableImages } = await buildMemeContext(messages);
+        const { transcript, images, unavailableImages } = await buildMemeContext(history);
         console.info('Discord meme history', JSON.stringify({
             interactionId: interaction.id, channelId: interaction.channelId,
             messageIds: messages.map(message => message.id), transcript,
+            ...(pasted && { pastedMessageCount: pasted.length }),
             images: images.map(image => image.label), unavailableImages,
         }));
         if (!target) return await interaction.editReply(noMeme);

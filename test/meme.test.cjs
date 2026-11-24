@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const { ChannelType, Collection, MessageFlags, MessageType, PermissionFlagsBits, PermissionsBitField, REST } = require('discord.js');
 const { commandHandler, registerCommands } = require('../dist/domains/bot/commands');
 const { createGeminiMemeSelector } = require('../dist/domains/meme/gemini');
+const { parsePastedMessages } = require('../dist/domains/meme/pasted');
 
 const modelResponse = (memeId) => Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [
     { text: '{"memeId":"other"}', thought: true }, { text: JSON.stringify({ memeId }) },
@@ -121,6 +122,80 @@ test('pages past bots until ten user messages are found and logs the chosen hist
         interactionId: '500', channelId: '200', messageIds: humans.slice(1).map(m => m.id), transcript,
         images: [], unavailableImages: [],
     });
+});
+
+test('splits a copied transcript by speaker, resolves unique local emoji names, and replies to the paste', async t => {
+    const log = t.mock.method(console, 'info', () => {});
+    const older = message(t, '401', '채널의 이전 대화');
+    const emojiId = '216154654256398347';
+    const emojisFetch = t.mock.fn(async () => new Collection([
+        [emojiId, { id: emojiId, name: 'emoji_2' }],
+        ['2', { id: '2', name: 'clap' }], ['3', { id: '3', name: 'clap' }],
+    ]));
+    const pasted = message(t, '402', [
+        '민서 민간인  — 어제 17:11\\',
+        '맛집 이름만 말할 듯하다가 조용해졌어\\',
+        ':emoji_2:\\',
+        '지호 민간인 — 어제 17:11\\',
+        ':cry\\~1: :clap:\\',
+        '준 민간인 — 어제 17:12\\',
+        '나도몰라\\',
+        '지호 민간인 — 어제 17:12\\',
+        '뼈해장국은 비선호해서\\',
+        '준 민간인 — 어제 17:12\\',
+        '사동아닌가\\',
+        '지호 민간인 — 어제 17:12\\',
+        '맛집을 모르겠노\\',
+        '준 민간인 — 어제 17:12\\',
+        '옆 동네 친구는 알거같은데\\',
+        '민서 민간인  — 어제 17:12\\',
+        '알려주는 척 하면서 아는 사람이 없네ㅋㅋ\\',
+        '지호 민간인 — 어제 17:13\\',
+        '폭탄 돌리기ㅋㅋ',
+    ].join('\n'), { guild: { emojis: { fetch: emojisFetch } } });
+    const botReply = message(t, '403', '봇 메시지', { author: { bot: true } });
+    const interaction = command(t, [older, pasted, botReply]);
+    const select = t.mock.fn(async () => 'laughing-leo');
+    const download = t.mock.method(global, 'fetch', async url => new Response(Buffer.from([1]), {
+        headers: { 'Content-Type': url.includes('/emojis/') ? 'image/webp' : 'image/png' },
+    }));
+
+    await commandHandler(undefined, undefined, select)(interaction);
+
+    const transcript = [
+        '<민서 민간인>: 맛집 이름만 말할 듯하다가 조용해졌어\n<이모티콘1>',
+        '<지호 민간인>: :cry\\~1: :clap:',
+        '<준 민간인>: 나도몰라',
+        '<지호 민간인>: 뼈해장국은 비선호해서',
+        '<준 민간인>: 사동아닌가',
+        '<지호 민간인>: 맛집을 모르겠노',
+        '<준 민간인>: 옆 동네 친구는 알거같은데',
+        '<민서 민간인>: 알려주는 척 하면서 아는 사람이 없네ㅋㅋ',
+        '<지호 민간인>: 폭탄 돌리기ㅋㅋ',
+    ].join('\n');
+    assert.deepEqual(select.mock.calls[0].arguments, [transcript, [
+        { label: '이모티콘1', name: 'emoji_2', mimeType: 'image/webp', data: 'AQ==' },
+    ]]);
+    assert.equal(emojisFetch.mock.calls.length, 1);
+    assert.equal(download.mock.calls[0].arguments[0], `https://cdn.discordapp.com/emojis/${emojiId}.webp?size=128`);
+    assert.equal(older.reply.mock.calls.length, 0);
+    assert.equal(pasted.reply.mock.calls[0].arguments[0].files[0].name, 'laughing-leo.png');
+    assert.deepEqual(JSON.parse(log.mock.calls[0].arguments[1]), {
+        interactionId: '500', channelId: '200', messageIds: ['402'], transcript,
+        pastedMessageCount: 9, images: ['이모티콘1'], unavailableImages: [],
+    });
+});
+
+test('uses the last ten copied turns and leaves ordinary multiline messages intact', async t => {
+    t.mock.method(console, 'info', () => {});
+    assert.equal(parsePastedMessages('할 일 목록\n민서 — 어제 17:11\n과제 끝\n준 — 오늘 09:12\n쉬자'), null);
+    assert.equal(parsePastedMessages('민서 — 어제 17:11\n과제 끝\n준 — 오늘 09:12'), null);
+
+    const turns = Array.from({ length: 12 }, (_, i) => `화자${i} — 2026. 11. 24. 오후 5:11\r\n본문${i}`);
+    const pasted = message(t, '402', ['```text', ...turns, '```'].join('\r\n'));
+    const select = t.mock.fn(async () => null);
+    await commandHandler(undefined, undefined, select)(command(t, [pasted]));
+    assert.equal(select.mock.calls[0].arguments[0], turns.slice(2).map((_, i) => `<화자${i + 2}>: 본문${i + 2}`).join('\n'));
 });
 
 test('includes a photo-only message, reuses a custom emoji image and logs missing media', async t => {
