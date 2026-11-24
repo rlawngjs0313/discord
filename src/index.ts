@@ -51,7 +51,7 @@ async function start() {
             void close().catch(() => undefined);
         });
         await registerCommands(botToken, applicationId, process.env.DISCORD_GUILD_ID, memeEnabled);
-        const handle = commandHandler(db, cipher, selectMeme);
+        const handle = commandHandler(db, cipher, selectMeme, process.env.MEME_DISCORD_SEARCH_PREVIEW === 'true');
         client.once(Events.ClientReady, () => {
             const readyFile = process.env.DISCORD_READY_FILE;
             if (readyFile) writeFileSync(readyFile, '');

@@ -181,6 +181,53 @@ test('posts a single silent attachment as a standalone message in the current th
     });
 });
 
+test('shows the search thumbnails and selected number only in the deferred private reply', async t => {
+    t.mock.method(console, 'info', () => {});
+    const interaction = command(t, [message(t, '403', '이제 어떡하지ㅋㅋ')]);
+    const candidates = [
+        { id: '1', title: '다른 반응', imageUrl: 'https://example.com/first.gif' },
+        { id: '2', title: '당황하는 표정', imageUrl: 'https://example.com/second.gif',
+            preview: { label: '검색 후보 2', mimeType: 'image/jpeg', data: 'AQID' } },
+    ];
+    const model = { query: async () => '당황하는 짤', choose: async () => '2' };
+    const download = t.mock.fn(async () => ({ bytes: Buffer.from('GIF89a'), extension: 'gif' }));
+    const select = createMemeSelector(model, async () => candidates, download);
+
+    await commandHandler(undefined, undefined, select, true)(interaction);
+
+    assert.deepEqual(interaction.deferReply.mock.calls[0].arguments, [{ flags: MessageFlags.Ephemeral }]);
+    assert.equal(interaction.deleteReply.mock.calls.length, 0);
+    assert.equal(interaction.editReply.mock.calls.length, 1);
+    const [preview] = interaction.editReply.mock.calls[0].arguments;
+    assert.match(preview.content, /당황하는 짤\n#1 · 다른 반응 \(썸네일 없음\)\n#2 · 당황하는 표정/);
+    assert.match(preview.content, /Gemini 선택 #2.*채널에 게시/);
+    assert.deepEqual(preview.files, [{
+        attachment: Buffer.from([1, 2, 3]), name: 'candidate-2.jpg', description: '#2 · 당황하는 표정',
+    }]);
+    assert.equal(interaction.channel.send.mock.calls.length, 1);
+    assert.deepEqual(interaction.channel.send.mock.calls[0].arguments[0].files, [{
+        attachment: Buffer.from('GIF89a'), name: 'meme.gif', description: '당황하는 표정',
+    }]);
+    assert.deepEqual(download.mock.calls.map(call => call.arguments[0]), [candidates[1].imageUrl]);
+});
+
+test('keeps the private search results when Gemini finds none of the candidates suitable', async t => {
+    t.mock.method(console, 'info', () => {});
+    const interaction = command(t, [message(t, '403', '이제 어떡하지ㅋㅋ')]);
+    const model = { query: async () => '당황하는 짤', choose: async () => null };
+    const select = createMemeSelector(model, async () => [{
+        id: '1', title: '관계없는 이미지', imageUrl: 'https://example.com/image.png',
+    }]);
+
+    await commandHandler(undefined, undefined, select, true)(interaction);
+
+    assert.equal(interaction.channel.send.mock.calls.length, 0);
+    assert.equal(interaction.deleteReply.mock.calls.length, 0);
+    const [preview] = interaction.editReply.mock.calls[0].arguments;
+    assert.match(preview.content, /관계없는 이미지/);
+    assert.match(preview.content, /어울리는 밈을 찾지 못했어요/);
+});
+
 test('pages past bots until ten user messages are found and logs the chosen history in order', async t => {
     const log = t.mock.method(console, 'info', () => {});
     const humans = Array.from({ length: 11 }, (_, i) => message(t, String(400 + i), `대화 ${i}`));
