@@ -75,8 +75,37 @@ if (!connectionString) {
             assert.equal(recent[0], fact);
             return '문어의 심장은 세 개다!';
         }, signal), /repeated/);
-        const newFact = '금성은 자전 주기가 공전 주기보다 길다.';
+        const newFact = '금성은 자전이 느리다.';
         assert.equal(await loadDailyTrivia(db, next, async () => newFact, signal), newFact);
+    });
+
+    test('daily trivia replaces a long saved fact with a complete single line', async t => {
+        const date = new Date('2000-11-27');
+        const signal = new AbortController().signal;
+        const longFact = '문어에게는 피를 순환시키는 심장이 세 개 있다.';
+        const shortFact = '문어는 심장이 3개다.';
+        t.after(() => db.prisma.dailyTrivia.deleteMany({ where: { date } }));
+        await db.prisma.dailyTrivia.create({ data: { date, fact: longFact } });
+
+        for (const invalid of ['문어의 몸에는 심장이 3개다.', '문어는\n심장이 3개다.']) {
+            await assert.rejects(loadDailyTrivia(db, date, async () => invalid, signal), /short single-line/);
+        }
+        const saved = await db.prisma.dailyTrivia.findUniqueOrThrow({ where: { date } });
+        assert.equal(saved.fact, longFact);
+
+        let calls = 0;
+        const shorten = async (_date, _recent, _signal, existingFact) => {
+            calls++;
+            assert.equal(existingFact, longFact);
+            return shortFact;
+        };
+        assert.deepEqual(await Promise.all([
+            loadDailyTrivia(db, date, shorten, signal),
+            loadDailyTrivia(db, date, shorten, signal),
+        ]), [shortFact, shortFact]);
+        assert.equal(calls, 1);
+        const updated = await db.prisma.dailyTrivia.findUniqueOrThrow({ where: { date } });
+        assert.equal(updated.fact, shortFact);
     });
 
     test('post-scoped totals, detail filtering, account updates, and settlement ownership', async () => {
