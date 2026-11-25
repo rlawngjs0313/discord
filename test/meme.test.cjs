@@ -34,7 +34,7 @@ test('registers the meme command only when enabled', async t => {
 test('ranks candidates using only the latest conversation flow and its images', async t => {
     const responses = [modelResponse({
         messageNumbers: [4, 2, 4], ...concept, query: 'celebration reaction gif', fallbackQuery: '퇴근 해방 짤',
-    }), modelResponse({ resultId: '1' })];
+    }), modelResponse({ imageEvidence: '잔을 부딪치며 축하하는 장면', resultId: '1' })];
     const request = t.mock.method(global, 'fetch', async () => responses.shift());
     const conversation = { turns: [
         turn(1, '준', '버스가 또 안 오네 <사진1>', ['사진1']),
@@ -275,8 +275,8 @@ test('tries a community meme when the first search is rejected and publishes onl
     const subject = { topic: '지하철에서 갑자기 방귀 냄새가 남', visualReference: '신지드가 독구름을 남기는 장면' };
     const replies = [
         modelResponse({ messageNumbers: [1, 2], ...subject, query: 'Singed poison trail GIF', fallbackQuery: '방독면 쓰는 짤' }),
-        modelResponse({ resultId: null }),
-        modelResponse({ resultId: '1' }),
+        modelResponse({ imageEvidence: '', resultId: '1' }),
+        modelResponse({ imageEvidence: '냄새를 피하려고 급히 방독면을 쓰는 장면', resultId: '1' }),
     ];
     const request = t.mock.method(global, 'fetch', async () => replies.shift());
     const preview = { label: '검색 후보 1', mimeType: 'image/jpeg', data: 'AQID' };

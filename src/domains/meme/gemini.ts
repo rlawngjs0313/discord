@@ -24,14 +24,14 @@ const searchInstructions = [...contextInstructions,
     '예를 들어 전철 안에서 누군가 방귀를 뀌었다면 독구름을 남기고 지나가는 신지드를 떠올려 "Singed poison trail League of Legends GIF"로 검색한다.',
     '게임은 상황에 정확히 들어맞을 때만 연상 소재로 쓴다. "대박 짤", "당황 짤"처럼 여러 상황에 그대로 붙는 말 대신 물건, 행동이나 눈에 보이는 장면을 쓴다.',
     'fallbackQuery는 같은 상황에 붙일 만한 한국어 커뮤니티 짤이나 사진을 찾는 검색어다. 첫 검색에서 쓴 게임·캐릭터·밈 이름은 빼고, 국내 커뮤니티에서 쓰일 법한 다른 장면으로 표현한다.',
-    'fallbackQuery에는 사람이나 캐릭터가 하는 행동과 "짤" 또는 "움짤"을 넣는다. 예시는 "몰래 모니터 들여다보는 짤", "악취에 코 막고 인상 쓰는 짤"이다. 여러 사이트의 GIF와 정지 이미지를 검색한다.',
+    'fallbackQuery에는 카메라로 찍을 수 있을 정도로 구체적인 행동 하나와 "짤" 또는 "움짤"을 넣는다. 예시는 "몰래 모니터 들여다보는 짤", "악취에 코 막고 인상 쓰는 짤"이다. 여러 사이트의 GIF와 정지 이미지를 검색한다.',
     'topic, visualReference, query, fallbackQuery에 화자 이름이나 개인 식별 정보, 대화 원문, URL을 넣지 않는다.',
 ].join('\n');
 const chooseInstructions = [...contextInstructions,
     'conversation에는 마지막 발언과 같은 흐름의 발언만 있다. concept가 있으면 topic과 visualReference를 실제 대화와 대조한 뒤, 그 연결이 제목과 썸네일에서 가장 잘 드러나는 결과 ID 하나를 고른다.',
-    'kind가 community이면 topic에 바로 붙여 쓸 법한 국내 커뮤니티식 짤이나 사진을 고른다. 앞 검색과 다른 소재라도 상황이나 반응이 이미지에서 바로 보여야 한다. 기사, 설정 안내나 게시글 캡처, 장면 없이 물건만 보여주는 제품 사진은 고르지 않는다.',
+    'kind가 community이면 topic에 바로 붙여 쓸 법한 국내 커뮤니티식 짤이나 사진을 고른다. 방송·캐릭터의 과장된 반응처럼 이미지 자체에서 웃긴 상황이나 반응이 읽혀야 한다. 평범한 스톡 사진·삽화, 기사나 설정 안내 캡처, 제품 사진은 고르지 않는다.',
     '주제와 연결되는 행동·장치·캐릭터가 이미지에 보이는 후보를 우선한다. 예를 들어 독구름을 남기는 장면을 찾을 때 캐릭터 초상화만 있으면 고르지 않는다. 말투와 감정은 주제와의 연결이 비슷한 후보 사이에서 판단에 사용한다.',
-    '주제나 연결 소재를 보여주는 후보가 없거나 제목과 이미지로 내용을 판단하기 어려우면 null을 반환한다.',
+    'imageEvidence에 어떤 행동이나 물건이 실제로 보이고 주제와 어떻게 이어지는지 한 구절로 적은 뒤 resultId를 고른다. 썸네일을 확인할 수 없다면 제목에서 장면까지 명확히 특정할 수 있어야 한다. 맞는 후보가 없으면 imageEvidence는 빈 문자열, resultId는 null로 둔다.',
 ].join('\n');
 
 type GeminiResponse = {
@@ -126,12 +126,12 @@ export function createGeminiMemeModel(apiKey: string, model = defaultGeminiModel
             const selection = await generate(chooseInstructions, {
                 conversation, concept, kind, candidates: candidates.map(({ id, title }) => ({ id, title })),
             }, [...images, ...candidates.flatMap(candidate => candidate.preview ? [candidate.preview] : [])],
-            { resultId: { anyOf: [{ type: 'string', enum: ids }, { type: 'null' }] } });
+            { imageEvidence: { type: 'string' }, resultId: { anyOf: [{ type: 'string', enum: ids }, { type: 'null' }] } });
             if (!selection || selection.resultId === null) return null;
             if (typeof selection.resultId !== 'string' || !ids.includes(selection.resultId)) {
                 throw new Error('Gemini returned an invalid resultId');
             }
-            return selection.resultId;
+            return typeof selection.imageEvidence === 'string' && selection.imageEvidence.trim() ? selection.resultId : null;
         },
     };
 }
