@@ -1,3 +1,4 @@
+import { MemeProviderError } from './errors';
 import { downloadPublicImage, publicImageUrl } from './media';
 import type { MemeSearch } from './selector';
 
@@ -17,11 +18,15 @@ export function createBraveMemeSearch(apiKey: string, download = downloadPublicI
             signal: AbortSignal.timeout(6_000), redirect: 'error',
         });
         if (!response.ok) {
-            await response.body?.cancel();
-            throw new Error(`Brave HTTP ${response.status}`);
+            await response.body?.cancel().catch(() => undefined);
+            throw new MemeProviderError('http_status', `Brave HTTP ${response.status}`, { httpStatus: response.status });
         }
 
-        const { results } = await response.json() as { results: BraveResult[] };
+        const body = await response.json() as { results?: BraveResult[] } | null;
+        const results = body?.results;
+        if (!Array.isArray(results)) {
+            throw new MemeProviderError('invalid_search_results', 'Brave returned an invalid results array');
+        }
         const seen = new Set<string>();
         const candidates = results.flatMap(result => {
             const image = result.properties?.url;

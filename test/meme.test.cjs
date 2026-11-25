@@ -267,6 +267,64 @@ test('keeps the private search results when Gemini finds none of the candidates 
     assert.match(preview.content, /어울리는 후보를 고르지 못했어요/);
 });
 
+test('logs the stage and safe details for meme request failures', async t => {
+    const privateText = 'private request or response';
+    const plan = () => modelResponse({ messageNumbers: [1], ...concept, query: 'reaction meme', fallbackQuery: null });
+    const candidates = () => Response.json({ results: [{
+        title: 'A meme', properties: { url: 'https://example.com/meme.jpg' },
+    }] });
+    const cases = [
+        {
+            name: 'Gemini planning timeout',
+            responses: [new DOMException(privateText, 'TimeoutError')],
+            expected: { stage: 'gemini_search_plan', errorName: 'TimeoutError', reason: 'timeout' },
+        },
+        {
+            name: 'Brave DNS error',
+            responses: [plan(), new TypeError('fetch failed', { cause: Object.assign(new Error(privateText), { code: 'EAI_AGAIN' }) })],
+            expected: { stage: 'brave_image_search', kind: 'primary', errorName: 'TypeError', reason: 'network_error', code: 'EAI_AGAIN' },
+        },
+        {
+            name: 'Brave HTTP status',
+            responses: [plan(), new Response(privateText, { status: 429 })],
+            expected: { stage: 'brave_image_search', kind: 'primary', errorName: 'MemeProviderError', reason: 'http_status', httpStatus: 429 },
+        },
+        {
+            name: 'Gemini candidate response stopped at the token limit',
+            responses: [plan(), candidates(), Response.json({ candidates: [{
+                finishReason: 'MAX_TOKENS', content: { parts: [{ text: privateText }] },
+            }] })],
+            expected: { stage: 'gemini_candidate_selection', kind: 'primary', errorName: 'MemeProviderError',
+                reason: 'incomplete_response', finishReason: 'MAX_TOKENS' },
+        },
+    ];
+    for (const { name, responses, expected } of cases) {
+        await t.test(name, async subtest => {
+            subtest.mock.method(console, 'info', () => {});
+            const log = subtest.mock.method(console, 'error', () => {});
+            subtest.mock.method(global, 'fetch', async () => {
+                const response = responses.shift();
+                if (response instanceof Error) throw response;
+                return response;
+            });
+            const select = createMemeSelector(createGeminiMemeModel('test-key'), createBraveMemeSearch('test-key'));
+            const interaction = command(subtest, [message(subtest, '403', '이제 어떡하지ㅋㅋ')]);
+
+            await commandHandler(undefined, undefined, select, true)(interaction);
+
+            assert.equal(log.mock.calls.length, 1);
+            const [label, json] = log.mock.calls[0].arguments;
+            assert.equal(label, 'Discord meme selection failed.');
+            assert.ok(!json.includes(privateText));
+            const { elapsedMs, ...details } = JSON.parse(json);
+            assert.ok(Number.isInteger(elapsedMs) && elapsedMs >= 0);
+            assert.deepEqual(details, { interactionId: '500', mode: 'preview', ...expected });
+            assert.match(interaction.editReply.mock.calls[0].arguments[0], /고르는 중 문제가 생겼어요/);
+            assert.equal(interaction.channel.send.mock.calls.length, 0);
+        });
+    }
+});
+
 for (const previewOnly of [false, true]) {
     test(`tries a community meme in ${previewOnly ? 'preview' : 'publish'} mode when the first search is rejected`, async t => {
         t.mock.method(console, 'info', () => {});

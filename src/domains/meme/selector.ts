@@ -1,4 +1,5 @@
 import type { MemeConversation } from './context';
+import { runMemeStage } from './errors';
 import type { MemeConcept, MemeImage, MemeSearchKind, createGeminiMemeModel } from './gemini';
 import { downloadPublicImage } from './media';
 
@@ -17,7 +18,7 @@ export function createMemeSelector(
     model: ReturnType<typeof createGeminiMemeModel>, search: MemeSearch, download = downloadPublicImage,
 ): MemeSelector {
     return async (conversation, images = [], mode = 'publish') => {
-        const plan = await model.planSearch(conversation, images);
+        const plan = await runMemeStage('gemini_search_plan', () => model.planSearch(conversation, images));
         if (!plan) return { query: null, messageNumbers: [], resultId: null, file: null };
         const { query, fallbackQuery, concept } = plan;
         const turns = conversation.turns.filter(turn => plan.messageNumbers.has(turn.number));
@@ -27,14 +28,18 @@ export function createMemeSelector(
         const flowImages = images.filter(image => imageLabels.has(image.label));
 
         async function findFile(searchTerm: string, kind: MemeSearchKind): Promise<MemeSelection> {
-            const candidates = await search(searchTerm);
+            const candidates = await runMemeStage('brave_image_search', () => search(searchTerm), kind);
             const details = { query: searchTerm, messageNumbers, concept, kind };
-            const resultId = candidates.length ? await model.choose(flow, flowImages, candidates, concept, kind) : null;
+            const resultId = candidates.length ? await runMemeStage(
+                'gemini_candidate_selection', () => model.choose(flow, flowImages, candidates, concept, kind), kind,
+            ) : null;
             if (mode === 'preview') return { ...details, candidates, resultId, file: null };
             const selected = candidates.find(candidate => candidate.id === resultId);
             if (!selected) return { ...details, resultId: null, file: null };
 
-            const media = await download(selected.imageUrl, 8 * 1024 * 1024, AbortSignal.timeout(5_000));
+            const media = await runMemeStage(
+                'image_download', () => download(selected.imageUrl, 8 * 1024 * 1024, AbortSignal.timeout(5_000)), kind,
+            );
             return { ...details, resultId, file: media ? {
                 attachment: media.bytes, name: `meme.${media.extension}`, description: selected.title,
             } : null };

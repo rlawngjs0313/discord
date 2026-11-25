@@ -1,4 +1,5 @@
 import type { MemeConversation } from './context';
+import { MemeProviderError } from './errors';
 import type { MemeCandidate } from './selector';
 
 export const defaultGeminiModel = 'gemini-3.5-flash-lite';
@@ -73,14 +74,18 @@ export function createGeminiMemeModel(apiKey: string, model = defaultGeminiModel
             }),
         });
         if (!response.ok) {
-            await response.body?.cancel();
-            throw new Error(`Gemini HTTP ${response.status}`);
+            await response.body?.cancel().catch(() => undefined);
+            throw new MemeProviderError('http_status', `Gemini HTTP ${response.status}`, { httpStatus: response.status });
         }
 
         const result = await response.json() as GeminiResponse;
         const candidate = result.candidates?.[0];
         if (result.promptFeedback?.blockReason || candidate?.finishReason === 'SAFETY') return null;
-        if (candidate?.finishReason !== 'STOP') throw new Error('Gemini returned an incomplete selection');
+        if (candidate?.finishReason !== 'STOP') {
+            throw new MemeProviderError('incomplete_response', 'Gemini returned an incomplete selection', {
+                finishReason: candidate?.finishReason,
+            });
+        }
         const output = candidate.content?.parts?.filter(part => !part.thought).map(part => part.text).join('') ?? '';
         return JSON.parse(output) as Record<string, unknown>;
     }
@@ -97,7 +102,9 @@ export function createGeminiMemeModel(apiKey: string, model = defaultGeminiModel
                 fallbackQuery: { type: ['string', 'null'] },
             });
             if (!plan || plan.query === null) return null;
-            if (typeof plan.query !== 'string') throw new Error('Gemini returned an invalid query');
+            if (typeof plan.query !== 'string') {
+                throw new MemeProviderError('invalid_query', 'Gemini returned an invalid query');
+            }
             const query = searchQuery(plan.query);
             if (!query) return null;
 
@@ -105,10 +112,10 @@ export function createGeminiMemeModel(apiKey: string, model = defaultGeminiModel
             const { messageNumbers, topic, visualReference, fallbackQuery } = plan;
             if (!Array.isArray(messageNumbers) || !messageNumbers.includes(latest.number)
                 || messageNumbers.some(number => !validNumbers.has(number))) {
-                throw new Error('Gemini returned invalid message numbers');
+                throw new MemeProviderError('invalid_message_numbers', 'Gemini returned invalid message numbers');
             }
             if (typeof topic !== 'string' || typeof visualReference !== 'string' || !topic.trim() || !visualReference.trim()) {
-                throw new Error('Gemini returned an invalid meme concept');
+                throw new MemeProviderError('invalid_concept', 'Gemini returned an invalid meme concept');
             }
             const fallback = typeof fallbackQuery === 'string' ? searchQuery(fallbackQuery) : null;
             return {
@@ -129,7 +136,7 @@ export function createGeminiMemeModel(apiKey: string, model = defaultGeminiModel
             { imageEvidence: { type: 'string' }, resultId: { anyOf: [{ type: 'string', enum: ids }, { type: 'null' }] } });
             if (!selection || selection.resultId === null) return null;
             if (typeof selection.resultId !== 'string' || !ids.includes(selection.resultId)) {
-                throw new Error('Gemini returned an invalid resultId');
+                throw new MemeProviderError('invalid_result_id', 'Gemini returned an invalid resultId');
             }
             return typeof selection.imageEvidence === 'string' && selection.imageEvidence.trim() ? selection.resultId : null;
         },

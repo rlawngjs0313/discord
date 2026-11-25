@@ -3,6 +3,7 @@ import {
     type InteractionEditReplyOptions,
 } from 'discord.js';
 import { buildMemeContext, recentUserMessages } from './context';
+import { memeFailureDetails, runMemeStage } from './errors';
 import type { MemeCandidate, MemeSelector } from './selector';
 
 export const memeCommandName = '밈';
@@ -57,7 +58,9 @@ export async function sendMeme(interaction: ChatInputCommandInteraction, select?
 
     let selection: Awaited<ReturnType<MemeSelector>>;
     try {
-        const { conversation, transcript, images, unavailableImages } = await buildMemeContext(history);
+        const { conversation, transcript, images, unavailableImages } = await runMemeStage(
+            'discord_context', () => buildMemeContext(history),
+        );
         console.info('Discord meme history', JSON.stringify({
             interactionId: interaction.id, channelId: interaction.channelId,
             messageIds: messages.map(message => message.id), transcript,
@@ -67,8 +70,9 @@ export async function sendMeme(interaction: ChatInputCommandInteraction, select?
         if (!messages.length) return await interaction.editReply(noMeme);
         selection = previewOnly ? await select(conversation, images, 'preview') : await select(conversation, images);
     } catch (error) {
-        const status = error instanceof Error && /^(Brave|Gemini) HTTP \d{3}$/.test(error.message) ? error.message : undefined;
-        console.error('Discord meme selection failed.', status ?? 'Unexpected error');
+        console.error('Discord meme selection failed.', JSON.stringify({
+            interactionId: interaction.id, mode: previewOnly ? 'preview' : 'publish', ...memeFailureDetails(error),
+        }));
         return await interaction.editReply(analysisError);
     }
     console.info('Discord meme search', JSON.stringify({
