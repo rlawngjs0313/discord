@@ -10,7 +10,9 @@
     "dev": "npm run build && npm start",
     "build": "prisma generate && tsc",
     "db:deploy": "node scripts/migrate.cjs",
-    "test": "npm run build && node --test test/*.test.cjs"
+    "test": "npm run build && node --test test/*.test.cjs",
+    "test:meme:quality": "npm run build && node scripts/meme-quality.cjs",
+    "meme:search": "node scripts/meme-search-preview.cjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",
