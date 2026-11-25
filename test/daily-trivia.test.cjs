@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { runDailyTrivia, seoulDay } = require('../dist/domains/bot/daily-trivia');
+const { Prisma } = require('../dist/generated/prisma/client');
 
 test('daily trivia uses the Korean calendar date and changes at Korean midnight', () => {
     const before = seoulDay(Date.parse('2026-11-30T14:59:59.999Z'));
@@ -30,4 +31,17 @@ test('daily trivia skips a result that arrives after Korean midnight', async t =
     }, controller.signal);
     assert.deepEqual(dates, ['2026-11-30', '2026-12-01']);
     assert.deepEqual(activities, ['오늘의 토막상식 · 오늘의 상식']);
+});
+
+test('daily trivia logs how to recover from a missing migration without printing Prisma details', async t => {
+    const controller = new AbortController();
+    const warn = t.mock.method(console, 'warn', () => controller.abort());
+    await runDailyTrivia(async () => {
+        throw new Prisma.PrismaClientKnownRequestError('private database details', {
+            code: 'P2021', clientVersion: 'test',
+        });
+    }, () => assert.fail('Should not publish'), controller.signal);
+    assert.deepEqual(warn.mock.calls[0].arguments, [
+        'Could not update the daily trivia presence. The daily trivia table is missing. Run npm run db:deploy. Retrying within one hour.',
+    ]);
 });

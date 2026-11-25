@@ -1,5 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Database } from '../../database/database';
+import { Prisma } from '../../generated/prisma/client';
 import { defaultGeminiModel, generateGeminiContent, type GeminiResponse } from '../../providers/gemini';
 
 const retryDelayMs = 60 * 60 * 1_000;
@@ -16,6 +17,8 @@ export function seoulDay(now: number) {
 
 type GenerateTrivia = (date: string, recent: string[], signal: AbortSignal) => Promise<string>;
 
+class TriviaGenerationError extends Error {}
+
 export function createGeminiTrivia(apiKey: string, model = defaultGeminiModel): GenerateTrivia {
     return async (date, recent, signal) => {
         const response = await generateGeminiContent(apiKey, model, {
@@ -31,12 +34,12 @@ export function createGeminiTrivia(apiKey: string, model = defaultGeminiModel): 
         }, AbortSignal.any([signal, AbortSignal.timeout(8_000)]));
         if (!response.ok) {
             await response.body?.cancel().catch(() => undefined);
-            throw new Error(`Gemini HTTP ${response.status}`);
+            throw new TriviaGenerationError(`Gemini returned HTTP ${response.status}.`);
         }
         const result = await response.json() as GeminiResponse;
         const candidate = result.candidates?.[0];
         if (result.promptFeedback?.blockReason || candidate?.finishReason !== 'STOP') {
-            throw new Error('Gemini did not return a complete trivia fact.');
+            throw new TriviaGenerationError('Gemini did not return a complete trivia fact.');
         }
         return candidate.content?.parts?.filter(part => !part.thought).map(part => part.text).join('') ?? '';
     };
@@ -46,11 +49,11 @@ function triviaText(value: string, recent: string[]) {
     const text = value.trim();
     if (!/[가-힣]/.test(text) || text.length > maxFactLength || /[\p{C}\u2028\u2029<>@`*_#]|https?:\/\//iu.test(text)
         || text.startsWith('오늘의 토막상식')) {
-        throw new Error('Gemini returned invalid trivia text.');
+        throw new TriviaGenerationError('Gemini returned invalid trivia text.');
     }
     const comparable = (fact: string) => fact.normalize('NFKC').toLowerCase().replace(/[\p{P}\s]/gu, '');
     if (recent.some(fact => comparable(fact) === comparable(text))) {
-        throw new Error('Gemini repeated a recent trivia fact.');
+        throw new TriviaGenerationError('Gemini repeated a recent trivia fact.');
     }
     return text;
 }
@@ -70,11 +73,30 @@ export async function loadDailyTrivia(db: Database, date: Date, generate: Genera
             where: { date: { lt: date } }, orderBy: { date: 'desc' }, take: 7, select: { fact: true },
         });
         const recent = rows.map(row => row.fact);
-        const fact = triviaText(await generate(date.toISOString().slice(0, 10), recent, signal), recent);
+        let generated: string;
+        try {
+            generated = await generate(date.toISOString().slice(0, 10), recent, signal);
+        } catch (error) {
+            if (error instanceof TriviaGenerationError) throw error;
+            const message = error instanceof Error && error.name === 'TimeoutError'
+                ? 'Gemini request timed out.'
+                : 'Gemini request or response handling failed.';
+            throw new TriviaGenerationError(message, { cause: error });
+        }
+        const fact = triviaText(generated, recent);
         signal.throwIfAborted();
         await tx.dailyTrivia.create({ data: { date, fact } });
         return fact;
     }, { isolationLevel: 'ReadCommitted', timeout: 20_000 });
+}
+
+function loadFailureMessage(error: unknown) {
+    if (error instanceof TriviaGenerationError) return error.message;
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2021') return 'The daily trivia table is missing. Run npm run db:deploy.';
+        return `PostgreSQL failed while loading daily trivia (${error.code}).`;
+    }
+    return 'Could not load daily trivia.';
 }
 
 export async function runDailyTrivia(
@@ -85,14 +107,17 @@ export async function runDailyTrivia(
     while (!signal.aborted) {
         const { date, nextMidnight } = seoulDay(Date.now());
         let retry = false;
+        let publishing = false;
         try {
             const fact = await load(date, signal);
             if (signal.aborted) return;
             if (Date.now() >= nextMidnight) continue;
+            publishing = true;
             publish(`오늘의 토막상식 · ${fact}`);
-        } catch {
+        } catch (error) {
             if (signal.aborted) return;
-            console.warn('Could not update the daily trivia presence. Retrying within one hour.');
+            const detail = publishing ? 'Could not publish the Discord activity.' : loadFailureMessage(error);
+            console.warn(`Could not update the daily trivia presence. ${detail} Retrying within one hour.`);
             retry = true;
         }
         const untilMidnight = Math.max(0, nextMidnight - Date.now());
