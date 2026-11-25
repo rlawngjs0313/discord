@@ -1,8 +1,9 @@
 import 'dotenv/config';
 import { writeFileSync } from 'node:fs';
-import { Client, Events, GatewayIntentBits } from 'discord.js';
+import { ActivityType, Client, Events, GatewayIntentBits } from 'discord.js';
 import { createDatabase } from './database/database';
 import { commandHandler, registerCommands } from './domains/bot/commands';
+import { createGeminiTrivia, loadDailyTrivia, runDailyTrivia } from './domains/bot/daily-trivia';
 import { createBraveMemeSearch } from './domains/meme/brave';
 import { createGeminiMemeModel } from './domains/meme/gemini';
 import { createMemeSelector } from './domains/meme/selector';
@@ -29,14 +30,26 @@ async function start() {
     if (memeEnabled && !selectMeme) console.warn('Discord meme search requires GEMINI_API_KEY and BRAVE_SEARCH_API_KEY.');
     const db = createDatabase(url);
     const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+    const triviaAbort = new AbortController();
+    let trivia: Promise<void> | undefined;
+    let triviaActivity: string | undefined;
+    function restoreTriviaActivity(shardId?: number) {
+        if (triviaActivity && !triviaAbort.signal.aborted) {
+            client.user?.setActivity(triviaActivity, { type: ActivityType.Playing, shardId });
+        }
+    }
     let worker: Awaited<ReturnType<typeof startWorker>> | undefined;
     let closing: Promise<void> | undefined;
     function close() {
         closing ??= (async () => {
+            triviaAbort.abort();
             try { await client.destroy(); }
             finally {
                 try { await worker?.stop(); }
-                finally { await db.close(); }
+                finally {
+                    try { await trivia; }
+                    finally { await db.close(); }
+                }
             }
         })();
         return closing;
@@ -52,10 +65,23 @@ async function start() {
         });
         await registerCommands(botToken, applicationId, process.env.DISCORD_GUILD_ID, memeEnabled);
         const handle = commandHandler(db, cipher, selectMeme, process.env.MEME_DISCORD_SEARCH_PREVIEW === 'true');
+        client.on(Events.ShardReady, restoreTriviaActivity);
+        client.on(Events.ShardResume, restoreTriviaActivity);
         client.once(Events.ClientReady, () => {
             const readyFile = process.env.DISCORD_READY_FILE;
             if (readyFile) writeFileSync(readyFile, '');
             console.info('Discord Gateway ready.');
+            if (geminiKey && !triviaAbort.signal.aborted) {
+                const generate = createGeminiTrivia(geminiKey, process.env.GEMINI_MODEL || undefined);
+                trivia = runDailyTrivia(
+                    (date, signal) => loadDailyTrivia(db, date, generate, signal),
+                    activity => {
+                        triviaActivity = activity;
+                        restoreTriviaActivity();
+                    },
+                    triviaAbort.signal,
+                ).catch(() => console.error('Daily trivia presence loop stopped unexpectedly.'));
+            }
         });
         client.on(Events.InteractionCreate, interaction => {
             void handle(interaction).catch(() => console.error('Discord interaction failed.'));

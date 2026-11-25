@@ -8,6 +8,13 @@ datasource db {
   provider = "postgresql"
 }
 
+model DailyTrivia {
+  date DateTime @id @db.Date
+  fact String   @db.VarChar(65)
+
+  @@map("daily_trivia")
+}
+
 model SettlementPost {
   postId   String             @id @map("post_id")
   guildId  String             @map("guild_id")
