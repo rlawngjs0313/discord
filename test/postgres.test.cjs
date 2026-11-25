@@ -23,6 +23,7 @@ if (!connectionString) {
     const queries = [];
     const db = createDatabase(connectionString, 10, query => queries.push(query));
     const sql = new Pool({ connectionString, max: 1 });
+    sql.on('error', assert.ifError);
     const cipher = tokenCipher(Buffer.alloc(32, 3));
     after(async () => {
         await db.close();
@@ -153,7 +154,8 @@ if (!connectionString) {
         const errorLog = t.mock.method(console, 'error', () => {});
         const urls = [];
         await runOnce({
-            connectionString,
+            // Serialize Graphile job completion and the assertions against the job table.
+            pgPool: sql,
             logger: replyWorkerLogger,
             taskList: replyTasks(db, cipher, '123', async (url, options) => {
                 assert.equal(options.method, 'DELETE');
