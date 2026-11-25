@@ -5,22 +5,18 @@ import { downloadPublicImage } from './media';
 type MemeFile = { attachment: Buffer; name: string; description: string };
 type MemeSelection = {
     query: string | null; messageNumbers: number[]; resultId: string | null; file: MemeFile | null;
-    concept?: MemeConcept; kind?: MemeSearchKind;
+    concept?: MemeConcept; kind?: MemeSearchKind; candidates?: MemeCandidate[];
 };
 export type MemeCandidate = { id: string; title: string; imageUrl: string; preview?: MemeImage };
 export type MemeSearch = (query: string) => Promise<MemeCandidate[]>;
-export type MemeSearchResults = {
-    query: string; messageNumbers: readonly number[]; candidates: readonly MemeCandidate[];
-    concept: MemeConcept; kind: MemeSearchKind;
-};
 export type MemeSelector = (
-    conversation: MemeConversation, images?: readonly MemeImage[], onSearch?: (results: MemeSearchResults) => void,
+    conversation: MemeConversation, images?: readonly MemeImage[], mode?: 'publish' | 'preview',
 ) => Promise<MemeSelection>;
 
 export function createMemeSelector(
     model: ReturnType<typeof createGeminiMemeModel>, search: MemeSearch, download = downloadPublicImage,
 ): MemeSelector {
-    return async (conversation, images = [], onSearch) => {
+    return async (conversation, images = [], mode = 'publish') => {
         const plan = await model.planSearch(conversation, images);
         if (!plan) return { query: null, messageNumbers: [], resultId: null, file: null };
         const { query, fallbackQuery, concept } = plan;
@@ -33,8 +29,8 @@ export function createMemeSelector(
         async function findFile(searchTerm: string, kind: MemeSearchKind): Promise<MemeSelection> {
             const candidates = await search(searchTerm);
             const details = { query: searchTerm, messageNumbers, concept, kind };
-            onSearch?.({ ...details, candidates });
             const resultId = candidates.length ? await model.choose(flow, flowImages, candidates, concept, kind) : null;
+            if (mode === 'preview') return { ...details, candidates, resultId, file: null };
             const selected = candidates.find(candidate => candidate.id === resultId);
             if (!selected) return { ...details, resultId: null, file: null };
 
@@ -45,6 +41,7 @@ export function createMemeSelector(
         }
 
         const primary = await findFile(query, 'primary');
-        return primary.file || !fallbackQuery ? primary : findFile(fallbackQuery, 'community');
+        const found = mode === 'preview' ? primary.resultId !== null : Boolean(primary.file);
+        return found || !fallbackQuery ? primary : findFile(fallbackQuery, 'community');
     };
 }

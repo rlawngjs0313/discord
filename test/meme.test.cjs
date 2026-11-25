@@ -166,16 +166,16 @@ function message(t, id, content, options = {}) {
     };
 }
 
-function command(t, messages, { readHistory = true, canReadHistory = true } = {}) {
+function command(t, messages, { readHistory = true, canReadHistory = true, canPublish = true } = {}) {
     const guildPermission = readHistory ? [PermissionFlagsBits.ReadMessageHistory] : [];
+    const publishPermissions = canPublish ? [PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.AttachFiles] : [];
     const fetch = t.mock.fn(async ({ before, limit }) => new Collection(messages
         .filter(m => BigInt(m.id) < BigInt(before))
         .sort((a, b) => BigInt(a.id) > BigInt(b.id) ? -1 : 1)
         .slice(0, limit).map(m => [m.id, m])));
     return {
         id: '500', channelId: '200', user: { id: '501' }, commandName: '밈', isChatInputCommand: () => true, inGuild: () => true,
-        appPermissions: new PermissionsBitField([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessagesInThreads,
-            PermissionFlagsBits.AttachFiles, ...guildPermission]),
+        appPermissions: new PermissionsBitField([PermissionFlagsBits.ViewChannel, ...publishPermissions, ...guildPermission]),
         memberPermissions: new PermissionsBitField(canReadHistory ? [PermissionFlagsBits.ReadMessageHistory] : []),
         channel: { type: ChannelType.PublicThread, isThread: () => true, messages: { fetch }, send: t.mock.fn(async () => {}) },
         deferReply: t.mock.fn(async () => {}),
@@ -219,17 +219,18 @@ test('posts a single silent attachment as a standalone message in the current th
     });
 });
 
-test('shows the search thumbnails and selected number only in the deferred private reply', async t => {
+test('previews five candidates and the selected number privately without downloading or publishing', async t => {
     t.mock.method(console, 'info', () => {});
-    const interaction = command(t, [message(t, '403', '이제 어떡하지ㅋㅋ')]);
-    const candidates = [
-        { id: '1', title: '다른 반응', imageUrl: 'https://example.com/first.gif' },
-        { id: '2', title: '당황하는 표정', imageUrl: 'https://example.com/second.gif',
-            preview: { label: '검색 후보 2', mimeType: 'image/jpeg', data: 'AQID' } },
-    ];
-    const model = { planSearch: async () => ({ ...planSearch(1), query: '당황하는 짤' }), choose: async () => '2' };
+    const interaction = command(t, [message(t, '403', '이제 어떡하지ㅋㅋ')], { canPublish: false });
+    const candidates = Array.from({ length: 5 }, (_, i) => ({
+        id: String(i + 1), title: `당황하는 표정 ${i + 1}`, imageUrl: `https://example.com/${i + 1}.gif`,
+        preview: { label: `검색 후보 ${i + 1}`, mimeType: 'image/jpeg', data: 'AQID' },
+    }));
+    const choose = t.mock.fn(async () => '2');
+    const model = { planSearch: async () => ({ ...planSearch(1), query: '당황하는 짤', fallbackQuery: '뒤로 숨는 짤' }), choose };
+    const search = t.mock.fn(async () => candidates);
     const download = t.mock.fn(async () => ({ bytes: Buffer.from('GIF89a'), extension: 'gif' }));
-    const select = createMemeSelector(model, async () => candidates, download);
+    const select = createMemeSelector(model, search, download);
 
     await commandHandler(undefined, undefined, select, true)(interaction);
 
@@ -237,17 +238,15 @@ test('shows the search thumbnails and selected number only in the deferred priva
     assert.equal(interaction.deleteReply.mock.calls.length, 0);
     assert.equal(interaction.editReply.mock.calls.length, 1);
     const [preview] = interaction.editReply.mock.calls[0].arguments;
-    assert.match(preview.content, /대화 흐름\*\* · 1번 발언/);
-    assert.match(preview.content, /당황하는 짤\n#1 · 다른 반응 \(썸네일 없음\)\n#2 · 당황하는 표정/);
-    assert.match(preview.content, /Gemini 선택 #2.*채널에 게시/);
-    assert.deepEqual(preview.files, [{
-        attachment: Buffer.from([1, 2, 3]), name: 'candidate-2.jpg', description: '#2 · 당황하는 표정',
-    }]);
-    assert.equal(interaction.channel.send.mock.calls.length, 1);
-    assert.deepEqual(interaction.channel.send.mock.calls[0].arguments[0].files, [{
-        attachment: Buffer.from('GIF89a'), name: 'meme.gif', description: '당황하는 표정',
-    }]);
-    assert.deepEqual(download.mock.calls.map(call => call.arguments[0]), [candidates[1].imageUrl]);
+    assert.match(preview.content, /당황하는 짤\n#1 · 당황하는 표정 1/);
+    assert.match(preview.content, /Gemini 선택 #2/);
+    assert.deepEqual(preview.files, candidates.map(({ id, title }) => ({
+        attachment: Buffer.from([1, 2, 3]), name: `candidate-${id}.jpg`, description: `#${id} · ${title}`,
+    })));
+    assert.equal(interaction.channel.send.mock.calls.length, 0);
+    assert.deepEqual(search.mock.calls.map(call => call.arguments[0]), ['당황하는 짤']);
+    assert.equal(choose.mock.calls.length, 1);
+    assert.equal(download.mock.calls.length, 0);
 });
 
 test('keeps the private search results when Gemini finds none of the candidates suitable', async t => {
@@ -264,43 +263,51 @@ test('keeps the private search results when Gemini finds none of the candidates 
     assert.equal(interaction.deleteReply.mock.calls.length, 0);
     const [preview] = interaction.editReply.mock.calls[0].arguments;
     assert.match(preview.content, /관계없는 이미지/);
-    assert.match(preview.content, /어울리는 밈을 찾지 못했어요/);
+    assert.match(preview.content, /썸네일 없음/);
+    assert.match(preview.content, /어울리는 후보를 고르지 못했어요/);
 });
 
-test('tries a community meme when the first search is rejected and publishes only the fallback image', async t => {
-    t.mock.method(console, 'info', () => {});
-    const interaction = command(t, [
-        message(t, '402', '누가 지하철에서 방귀 뀜'), message(t, '403', '어이없네'),
-    ]);
-    const subject = { topic: '지하철에서 갑자기 방귀 냄새가 남', visualReference: '신지드가 독구름을 남기는 장면' };
-    const replies = [
-        modelResponse({ messageNumbers: [1, 2], ...subject, query: 'Singed poison trail GIF', fallbackQuery: '방독면 쓰는 짤' }),
-        modelResponse({ imageEvidence: '', resultId: '1' }),
-        modelResponse({ imageEvidence: '냄새를 피하려고 급히 방독면을 쓰는 장면', resultId: '1' }),
-    ];
-    const request = t.mock.method(global, 'fetch', async () => replies.shift());
-    const preview = { label: '검색 후보 1', mimeType: 'image/jpeg', data: 'AQID' };
-    const primary = { id: '1', title: '신지드 초상화', imageUrl: 'https://example.com/portrait.jpg', preview };
-    const community = { id: '1', title: '방독면 급하게 쓰는 짤', imageUrl: 'https://example.com/mask.jpg', preview };
-    const search = t.mock.fn(async query => query === 'Singed poison trail GIF' ? [primary] : [community]);
-    const download = t.mock.fn(async () => ({ bytes: Buffer.from([1, 2, 3]), extension: 'jpg' }));
-    const select = createMemeSelector(createGeminiMemeModel('test-key'), search, download);
+for (const previewOnly of [false, true]) {
+    test(`tries a community meme in ${previewOnly ? 'preview' : 'publish'} mode when the first search is rejected`, async t => {
+        t.mock.method(console, 'info', () => {});
+        const interaction = command(t, [
+            message(t, '402', '누가 지하철에서 방귀 뀜'), message(t, '403', '어이없네'),
+        ]);
+        const subject = { topic: '지하철에서 갑자기 방귀 냄새가 남', visualReference: '신지드가 독구름을 남기는 장면' };
+        const replies = [
+            modelResponse({ messageNumbers: [1, 2], ...subject, query: 'Singed poison trail GIF', fallbackQuery: '방독면 쓰는 짤' }),
+            modelResponse({ imageEvidence: '', resultId: '1' }),
+            modelResponse({ imageEvidence: '냄새를 피하려고 급히 방독면을 쓰는 장면', resultId: '1' }),
+        ];
+        const request = t.mock.method(global, 'fetch', async () => replies.shift());
+        const preview = { label: '검색 후보 1', mimeType: 'image/jpeg', data: 'AQID' };
+        const primary = { id: '1', title: '신지드 초상화', imageUrl: 'https://example.com/portrait.jpg', preview };
+        const community = { id: '1', title: '방독면 급하게 쓰는 짤', imageUrl: 'https://example.com/mask.jpg', preview };
+        const search = t.mock.fn(async query => query === 'Singed poison trail GIF' ? [primary] : [community]);
+        const download = t.mock.fn(async () => ({ bytes: Buffer.from([1, 2, 3]), extension: 'jpg' }));
+        const select = createMemeSelector(createGeminiMemeModel('test-key'), search, download);
 
-    await commandHandler(undefined, undefined, select, true)(interaction);
+        await commandHandler(undefined, undefined, select, previewOnly)(interaction);
 
-    assert.deepEqual(search.mock.calls.map(call => call.arguments[0]), ['Singed poison trail GIF', '방독면 쓰는 짤']);
-    assert.deepEqual(download.mock.calls.map(call => call.arguments[0]), [community.imageUrl]);
-    const fallbackInput = JSON.parse(JSON.parse(request.mock.calls[2].arguments[1].body).contents[0].parts[0].text);
-    assert.deepEqual(fallbackInput.concept, subject);
-    assert.equal(fallbackInput.kind, 'community');
-    const [reply] = interaction.editReply.mock.calls[0].arguments;
-    assert.match(reply.content, /지하철에서 갑자기 방귀 냄새가 남/);
-    assert.match(reply.content, /커뮤니티 검색어\*\* · 방독면 쓰는 짤/);
-    assert.match(reply.content, /Gemini 선택 커뮤니티 후보 #1/);
-    assert.deepEqual(reply.files.map(file => file.name), ['candidate-1.jpg', 'community-1.jpg']);
-    assert.equal(interaction.channel.send.mock.calls.length, 1);
-    assert.equal(interaction.channel.send.mock.calls[0].arguments[0].files[0].description, community.title);
-});
+        assert.deepEqual(search.mock.calls.map(call => call.arguments[0]), ['Singed poison trail GIF', '방독면 쓰는 짤']);
+        const fallbackInput = JSON.parse(JSON.parse(request.mock.calls[2].arguments[1].body).contents[0].parts[0].text);
+        assert.deepEqual(fallbackInput.concept, subject);
+        assert.equal(fallbackInput.kind, 'community');
+        if (previewOnly) {
+            const [reply] = interaction.editReply.mock.calls[0].arguments;
+            assert.match(reply.content, /검색어\*\* · 방독면 쓰는 짤/);
+            assert.match(reply.content, /Gemini 선택 #1/);
+            assert.doesNotMatch(reply.content, /신지드 초상화/);
+            assert.deepEqual(reply.files.map(file => file.description), [`#1 · ${community.title}`]);
+            assert.equal(download.mock.calls.length, 0);
+            assert.equal(interaction.channel.send.mock.calls.length, 0);
+        } else {
+            assert.deepEqual(download.mock.calls.map(call => call.arguments[0]), [community.imageUrl]);
+            assert.equal(interaction.channel.send.mock.calls.length, 1);
+            assert.equal(interaction.channel.send.mock.calls[0].arguments[0].files[0].description, community.title);
+        }
+    });
+}
 
 test('pages past bots until ten user messages are found and logs the chosen history in order', async t => {
     const log = t.mock.method(console, 'info', () => {});
