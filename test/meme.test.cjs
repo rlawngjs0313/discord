@@ -18,7 +18,10 @@ const imageSelection = (name, description) => ({
 });
 const turn = (number, speaker, text, imageLabels = []) => ({ number, speaker, text, imageLabels });
 const sampleConversation = { turns: [turn(1, '민서', '이제 어떡하지ㅋㅋ')] };
-const planSearch = (...messageNumbers) => ({ query: 'reaction meme', messageNumbers: new Set(messageNumbers) });
+const concept = { topic: '과제 끝난 상황', visualReference: '축하하는 건배 GIF' };
+const planSearch = (...messageNumbers) => ({
+    query: 'reaction meme', fallbackQuery: null, concept, messageNumbers: new Set(messageNumbers),
+});
 
 test('registers the meme command only when enabled', async t => {
     const put = t.mock.method(REST.prototype, 'put', async () => []);
@@ -29,7 +32,9 @@ test('registers the meme command only when enabled', async t => {
 });
 
 test('ranks candidates using only the latest conversation flow and its images', async t => {
-    const responses = [modelResponse({ messageNumbers: [4, 2, 4], query: 'celebration reaction gif' }), modelResponse({ resultId: '1' })];
+    const responses = [modelResponse({
+        messageNumbers: [4, 2, 4], ...concept, query: 'celebration reaction gif', fallbackQuery: '퇴근 해방 짤',
+    }), modelResponse({ resultId: '1' })];
     const request = t.mock.method(global, 'fetch', async () => responses.shift());
     const conversation = { turns: [
         turn(1, '준', '버스가 또 안 오네 <사진1>', ['사진1']),
@@ -47,9 +52,10 @@ test('ranks candidates using only the latest conversation flow and its images', 
     const search = t.mock.fn(async () => [candidate]);
     const download = t.mock.fn(async () => ({ bytes: Buffer.from('GIF89a'), mimeType: 'image/gif', extension: 'gif' }));
     const select = createMemeSelector(createGeminiMemeModel('test-key'), search, download);
-    assert.deepEqual(await select(conversation, images), { query: 'celebration reaction gif', messageNumbers: [2, 4], resultId: '1', file: {
-        attachment: Buffer.from('GIF89a'), name: 'meme.gif', description: candidate.title,
-    } });
+    assert.deepEqual(await select(conversation, images), {
+        query: 'celebration reaction gif', messageNumbers: [2, 4], concept, kind: 'primary', resultId: '1',
+        file: { attachment: Buffer.from('GIF89a'), name: 'meme.gif', description: candidate.title },
+    });
     assert.deepEqual(search.mock.calls.map(call => call.arguments), [['celebration reaction gif']]);
     assert.equal(download.mock.calls[0].arguments[0], candidate.imageUrl);
     assert.equal(request.mock.calls.length, 2);
@@ -65,11 +71,12 @@ test('ranks candidates using only the latest conversation flow and its images', 
         { text: '사진2' }, { inlineData: { mimeType: 'image/png', data: 'Aw==' } },
         { text: '이모티콘1 (celebrate)' }, { inlineData: { mimeType: 'image/webp', data: 'AQ==' } },
     ]);
-    assert.deepEqual(body.generationConfig.responseJsonSchema.required, ['messageNumbers', 'query']);
+    assert.deepEqual(body.generationConfig.responseJsonSchema.required, ['messageNumbers', 'topic', 'visualReference', 'query', 'fallbackQuery']);
     const selectionBody = JSON.parse(request.mock.calls[1].arguments[1].body);
     const [selectionInput, ...selectionMedia] = selectionBody.contents[0].parts;
     assert.deepEqual(JSON.parse(selectionInput.text), {
         conversation: { turns: [conversation.turns[1], conversation.turns[3]] },
+        concept, kind: 'primary',
         candidates: [{ id: '1', title: candidate.title }],
     });
     assert.deepEqual(selectionMedia, [
@@ -132,10 +139,11 @@ test('skips result ranking for an empty search and reports an unavailable origin
     const search = t.mock.fn(async () => searchResults.shift());
     const download = t.mock.fn(async () => null);
     const select = createMemeSelector({ planSearch: async () => planSearch(1), choose }, search, download);
-    assert.deepEqual(await select(sampleConversation), { query: 'reaction meme', messageNumbers: [1], resultId: null, file: null });
+    const selection = { query: 'reaction meme', messageNumbers: [1], concept, kind: 'primary', file: null };
+    assert.deepEqual(await select(sampleConversation), { ...selection, resultId: null });
     assert.equal(choose.mock.calls.length, 0);
     assert.equal(download.mock.calls.length, 0);
-    assert.deepEqual(await select(sampleConversation), { query: 'reaction meme', messageNumbers: [1], resultId: '2', file: null });
+    assert.deepEqual(await select(sampleConversation), { ...selection, resultId: '2' });
     assert.equal(download.mock.calls[0].arguments[0], candidate.imageUrl);
 });
 
@@ -257,6 +265,41 @@ test('keeps the private search results when Gemini finds none of the candidates 
     const [preview] = interaction.editReply.mock.calls[0].arguments;
     assert.match(preview.content, /관계없는 이미지/);
     assert.match(preview.content, /어울리는 밈을 찾지 못했어요/);
+});
+
+test('tries a community meme when the first search is rejected and publishes only the fallback image', async t => {
+    t.mock.method(console, 'info', () => {});
+    const interaction = command(t, [
+        message(t, '402', '누가 지하철에서 방귀 뀜'), message(t, '403', '어이없네'),
+    ]);
+    const subject = { topic: '지하철에서 갑자기 방귀 냄새가 남', visualReference: '신지드가 독구름을 남기는 장면' };
+    const replies = [
+        modelResponse({ messageNumbers: [1, 2], ...subject, query: 'Singed poison trail GIF', fallbackQuery: '방독면 쓰는 짤' }),
+        modelResponse({ resultId: null }),
+        modelResponse({ resultId: '1' }),
+    ];
+    const request = t.mock.method(global, 'fetch', async () => replies.shift());
+    const preview = { label: '검색 후보 1', mimeType: 'image/jpeg', data: 'AQID' };
+    const primary = { id: '1', title: '신지드 초상화', imageUrl: 'https://example.com/portrait.jpg', preview };
+    const community = { id: '1', title: '방독면 급하게 쓰는 짤', imageUrl: 'https://example.com/mask.jpg', preview };
+    const search = t.mock.fn(async query => query === 'Singed poison trail GIF' ? [primary] : [community]);
+    const download = t.mock.fn(async () => ({ bytes: Buffer.from([1, 2, 3]), extension: 'jpg' }));
+    const select = createMemeSelector(createGeminiMemeModel('test-key'), search, download);
+
+    await commandHandler(undefined, undefined, select, true)(interaction);
+
+    assert.deepEqual(search.mock.calls.map(call => call.arguments[0]), ['Singed poison trail GIF', '방독면 쓰는 짤']);
+    assert.deepEqual(download.mock.calls.map(call => call.arguments[0]), [community.imageUrl]);
+    const fallbackInput = JSON.parse(JSON.parse(request.mock.calls[2].arguments[1].body).contents[0].parts[0].text);
+    assert.deepEqual(fallbackInput.concept, subject);
+    assert.equal(fallbackInput.kind, 'community');
+    const [reply] = interaction.editReply.mock.calls[0].arguments;
+    assert.match(reply.content, /지하철에서 갑자기 방귀 냄새가 남/);
+    assert.match(reply.content, /커뮤니티 검색어\*\* · 방독면 쓰는 짤/);
+    assert.match(reply.content, /Gemini 선택 커뮤니티 후보 #1/);
+    assert.deepEqual(reply.files.map(file => file.name), ['candidate-1.jpg', 'community-1.jpg']);
+    assert.equal(interaction.channel.send.mock.calls.length, 1);
+    assert.equal(interaction.channel.send.mock.calls[0].arguments[0].files[0].description, community.title);
 });
 
 test('pages past bots until ten user messages are found and logs the chosen history in order', async t => {

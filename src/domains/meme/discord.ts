@@ -12,24 +12,30 @@ const historyError = '이 채널의 메시지 기록을 읽을 수 없어요.';
 const analysisError = '대화에 어울리는 밈을 고르는 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.';
 const publishError = '밈을 보내지 못했어요. 잠시 후 다시 시도해 주세요.';
 
-function searchPreview({ query, messageNumbers, candidates }: MemeSearchResults, outcome: string): InteractionEditReplyOptions {
+function searchPreview({ query, messageNumbers, candidates, concept, kind }: MemeSearchResults) {
+    const community = kind === 'community';
     const lines = candidates.map(({ id, title, preview }) =>
-        `#${id} · ${escapeMarkdown(title.replace(/\s+/g, ' ').slice(0, 120)) || '검색 이미지'}${preview ? '' : ' (썸네일 없음)'}`);
+        `#${id} · ${escapeMarkdown(title.replace(/\s+/g, ' ').slice(0, 45)) || '검색 이미지'}${preview ? '' : ' (썸네일 없음)'}`);
     const files = candidates.flatMap(({ id, title, preview }) => {
         if (!preview) return [];
         const extension = preview.mimeType === 'image/jpeg' ? 'jpg' : preview.mimeType.split('/')[1];
         return [{
             attachment: Buffer.from(preview.data, 'base64'),
-            name: `candidate-${id}.${extension}`,
-            description: `#${id} · ${title}`,
+            name: `${community ? 'community' : 'candidate'}-${id}.${extension}`,
+            description: `${community ? '커뮤니티 ' : ''}#${id} · ${title}`,
         }];
     });
     return {
         content: [
-            `**대화 흐름** · ${messageNumbers.join(', ')}번 발언`,
-            `**검색어** · ${escapeMarkdown(query)}`, ...lines, '', outcome,
+            ...(!community ? [
+                `**대화 흐름** · ${messageNumbers.join(', ')}번 발언`,
+                `**주제** · ${escapeMarkdown(concept.topic.replace(/\s+/g, ' ').slice(0, 65))}`,
+                `**밈 소재** · ${escapeMarkdown(concept.visualReference.replace(/\s+/g, ' ').slice(0, 65))}`,
+            ] : []),
+            `**${community ? '커뮤니티 검색어' : '검색어'}** · ${escapeMarkdown(query)}`,
+            ...(lines.length ? lines : ['검색 후보 없음']),
         ].join('\n'),
-        files, allowedMentions: { parse: [] },
+        files,
     };
 }
 
@@ -54,13 +60,19 @@ export async function sendMeme(interaction: ChatInputCommandInteraction, select?
     if (!history) return await interaction.editReply(historyError);
     const { messages, pasted } = history;
 
-    let searchResults: MemeSearchResults | undefined;
-    const captureSearch = (results: MemeSearchResults) => { searchResults = results; };
+    const searchResults: MemeSearchResults[] = [];
+    const captureSearch = (results: MemeSearchResults) => { searchResults.push(results); };
     async function finish(message?: string, resultId?: string) {
-        if (searchResults) {
-            const outcome = resultId ? `**Gemini 선택 #${resultId}** · ${message ?? '채널에 게시했어요.'}` : message ?? noMeme;
+        if (searchResults.length) {
+            const prefix = searchResults.at(-1)?.kind === 'community' ? '커뮤니티 후보 ' : '';
+            const outcome = resultId ? `**Gemini 선택 ${prefix}#${resultId}** · ${message ?? '채널에 게시했어요.'}` : message ?? noMeme;
+            const previews = searchResults.map(searchPreview);
+            const reply: InteractionEditReplyOptions = {
+                content: [...previews.map(preview => preview.content), outcome].join('\n\n'),
+                files: previews.flatMap(preview => preview.files), allowedMentions: { parse: [] },
+            };
             try {
-                await interaction.editReply(searchPreview(searchResults, outcome));
+                await interaction.editReply(reply);
                 return;
             } catch {
                 console.error('Discord meme search preview failed.');
@@ -88,6 +100,7 @@ export async function sendMeme(interaction: ChatInputCommandInteraction, select?
     }
     console.info('Discord meme search', JSON.stringify({
         interactionId: interaction.id, query: selection.query, messageNumbers: selection.messageNumbers,
+        ...(selection.concept && { concept: selection.concept, kind: selection.kind }),
         resultId: selection.resultId, downloaded: Boolean(selection.file),
     }));
     if (selection.resultId === null) return await finish(noMeme);
