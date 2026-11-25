@@ -4,6 +4,7 @@ const { ChannelType, Collection, MessageFlags, MessageType, PermissionFlagsBits,
 const { commandHandler, registerCommands } = require('../dist/domains/bot/commands');
 const { createGeminiMemeModel } = require('../dist/domains/meme/gemini');
 const { createBraveMemeSearch } = require('../dist/domains/meme/brave');
+const { recentUserMessages } = require('../dist/domains/meme/context');
 const { createMemeSelector } = require('../dist/domains/meme/selector');
 const { isPublicAddress, publicImageUrl } = require('../dist/domains/meme/media');
 const { parsePastedMessages } = require('../dist/domains/meme/pasted');
@@ -385,6 +386,39 @@ test('pages past bots until ten user messages are found and logs the chosen hist
     });
 });
 
+test('skips trailing link-only messages and fills the history from earlier messages', async t => {
+    const log = t.mock.method(console, 'info', () => {});
+    const conversation = Array.from({ length: 8 }, (_, i) => message(t, String(400 + i), `대화 ${i}`));
+    const olderLink = message(t, '408', 'https://example.com/older');
+    const latestText = message(t, '409', '이 영상이 그거야 https://example.com/video');
+    const bareLink = message(t, '410', 'https://example.com/latest');
+    const formattedLinks = message(t, '411', '<https://example.com/no-embed>\n[영상 링크](https://example.com/clip)');
+    const bot = message(t, '412', '봇', { author: { bot: true } });
+    const interaction = command(t, [...conversation, olderLink, latestText, bareLink, formattedLinks, bot]);
+    const select = t.mock.fn(async () => noSelection);
+
+    await commandHandler(undefined, undefined, select, true)(interaction);
+
+    const { turns } = select.mock.calls[0].arguments[0];
+    assert.equal(turns.length, 10);
+    assert.deepEqual(turns.slice(-2), [turn(9, '민서', '[링크]'), turn(10, '민서', '이 영상이 그거야 [링크]')]);
+    assert.deepEqual(interaction.channel.messages.fetch.mock.calls.map(call => call.arguments[0]), [
+        { before: '500', limit: 10, cache: false }, { before: '403', limit: 10, cache: false },
+    ]);
+    assert.deepEqual(JSON.parse(log.mock.calls[0].arguments[1]).messageIds, [...conversation, olderLink, latestText].map(m => m.id));
+});
+
+test('keeps a trailing URL message with a photo or emoji', async t => {
+    const url = 'https://example.com/link';
+    const photo = message(t, '409', url, { attachments: new Collection([['1', { name: 'photo.png', contentType: 'image/png' }]]) });
+    const emoji = message(t, '410', `${url} <:waiting:216154654256398347>`);
+    for (const latest of [photo, emoji]) {
+        const interaction = command(t, [latest]);
+        const { messages } = await recentUserMessages(interaction.channel.messages, interaction.id);
+        assert.deepEqual(messages, [latest]);
+    }
+});
+
 test('splits a copied transcript by speaker, resolves local emoji names, and posts a standalone meme', async t => {
     const log = t.mock.method(console, 'info', () => {});
     const older = message(t, '401', '채널의 이전 대화');
@@ -449,13 +483,13 @@ test('splits a copied transcript by speaker, resolves local emoji names, and pos
     });
 });
 
-test('uses the last ten copied turns and leaves ordinary multiline messages intact', async t => {
+test('uses ten copied turns before trailing links and leaves ordinary multiline messages intact', async t => {
     t.mock.method(console, 'info', () => {});
     assert.equal(parsePastedMessages('할 일 목록\n민서 — 어제 17:11\n과제 끝\n준 — 오늘 09:12\n쉬자'), null);
     assert.equal(parsePastedMessages('민서 — 어제 17:11\n과제 끝\n준 — 오늘 09:12'), null);
 
     const turns = Array.from({ length: 12 }, (_, i) => `화자${i} — 2026. 11. 24. 오후 5:11\r\n본문${i}`);
-    const pasted = message(t, '402', ['```text', ...turns, '```'].join('\r\n'));
+    const pasted = message(t, '402', ['```text', ...turns, '화자12 — 오늘 09:12', 'https://example.com/latest', '```'].join('\r\n'));
     const select = t.mock.fn(async () => noSelection);
     await commandHandler(undefined, undefined, select)(command(t, [pasted]));
     assert.deepEqual(select.mock.calls[0].arguments[0], {

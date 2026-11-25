@@ -8,6 +8,7 @@ const imageBudget = 13 * 1024 * 1024;
 const supportedImageTypes = /^image\/(jpeg|png|webp|heic|heif)(?:;|$)/i;
 const customEmoji = /<a?:([\w-]+):(\d{17,20})>/g;
 const pastedEmoji = /(?<![\w:<]):([\w-]+):(?![\w:>])/g;
+const messageLinks = /\[[^[\]\r\n]*\]\((?:<https?:\/\/[^\s<>]+>|https?:\/\/[^\s<>]+)\)|<https?:\/\/[^\s<>]+>|https?:\/\/[^\s<>]+/gi;
 type MemeHistory = { messages: readonly Message[]; pasted?: NonNullable<ReturnType<typeof parsePastedMessages>> };
 type MemeTurn = { number: number; speaker: string; text: string; imageLabels: readonly string[]; replyTo?: number };
 export type MemeConversation = { turns: readonly MemeTurn[]; sharedImageLabels?: readonly string[] };
@@ -17,21 +18,29 @@ function isPhoto(attachment: Attachment) {
         : /\.(jpe?g|png|webp|heic|heif)$/i.test(attachment.name);
 }
 
+function isLinkOnly(content: string) {
+    const text = content.trim();
+    return Boolean(text) && !text.replace(messageLinks, '').trim();
+}
+
 export async function recentUserMessages(manager: MessageManager, before: string): Promise<MemeHistory> {
     const messages: Message[] = [];
     while (messages.length < contextSize) {
         const page = await manager.fetch({ before, limit: contextSize, cache: false });
         for (const message of page.values()) {
-            if (!message.author.bot && !message.webhookId
-                && (message.type === MessageType.Default || message.type === MessageType.Reply)
-                && (message.content.trim() || message.attachments.some(isPhoto))) {
-                if (!messages.length) {
-                    const pasted = parsePastedMessages(message.content);
-                    if (pasted) return { messages: [message], pasted: pasted.slice(-contextSize) };
+            if (message.author.bot || message.webhookId
+                || (message.type !== MessageType.Default && message.type !== MessageType.Reply)) continue;
+            const content = message.content.trim();
+            if ((!content || (!messages.length && isLinkOnly(content))) && !message.attachments.some(isPhoto)) continue;
+            if (!messages.length) {
+                const pasted = parsePastedMessages(content);
+                if (pasted) {
+                    while (isLinkOnly(pasted.at(-1)?.text ?? '')) pasted.pop();
+                    return { messages: [message], pasted: pasted.slice(-contextSize) };
                 }
-                messages.push(message);
-                if (messages.length === contextSize) break;
             }
+            messages.push(message);
+            if (messages.length === contextSize) break;
         }
         const oldest = page.lastKey();
         if (page.size < contextSize || !oldest || oldest === before) break;
