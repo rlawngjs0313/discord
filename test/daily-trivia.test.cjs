@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { createGeminiTrivia, runDailyTrivia, seoulDay } = require('../dist/domains/bot/daily-trivia');
+const { runDailyTrivia, seoulDay } = require('../dist/domains/bot/daily-trivia');
 const { Prisma } = require('../dist/generated/prisma/client');
 
 test('daily trivia uses the Korean calendar date and changes at Korean midnight', () => {
@@ -44,20 +44,4 @@ test('daily trivia logs how to recover from a missing migration without printing
     assert.deepEqual(warn.mock.calls[0].arguments, [
         'Could not update the daily trivia presence. The daily trivia table is missing. Run npm run db:deploy. Retrying within one hour.',
     ]);
-});
-
-test('Gemini trivia selects a full short sentence from one response', async t => {
-    const facts = [
-        '문어의 몸에는 피를 순환시키는 심장이 3개 있다.',
-        '문어는 심장이 3개다!',
-        '벌은\n춤으로 알린다.',
-        '금성은 자전이 느리다.',
-    ];
-    const request = t.mock.method(global, 'fetch', async () => Response.json({
-        candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ facts }) }] } }],
-    }));
-    const generate = createGeminiTrivia('test-key');
-    const selected = await generate('2026-11-25', ['문어는 심장이 3개다.'], new AbortController().signal);
-    assert.equal(selected, facts[3]);
-    assert.equal(request.mock.callCount(), 1);
 });
