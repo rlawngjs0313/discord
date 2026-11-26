@@ -1,8 +1,9 @@
+import { defaultGeminiModel, generateGeminiContent, type GeminiResponse } from '../../providers/gemini';
 import type { MemeConversation } from './context';
 import { MemeProviderError } from './errors';
 import type { MemeCandidate } from './selector';
 
-export const defaultGeminiModel = 'gemini-3.5-flash-lite';
+export { defaultGeminiModel } from '../../providers/gemini';
 
 export type MemeImage = { label: string; name?: string; mimeType: string; data: string };
 export type MemeConcept = { topic: string; visualReference: string };
@@ -37,18 +38,12 @@ const chooseInstructions = [...contextInstructions,
     'imageEvidence에 어떤 행동이나 물건이 실제로 보이고 주제와 어떻게 이어지는지 한 구절로 적은 뒤 resultId를 고른다. 썸네일을 확인할 수 없다면 제목에서 장면까지 명확히 특정할 수 있어야 한다. 맞는 후보가 없으면 imageEvidence는 빈 문자열, resultId는 null로 둔다.',
 ].join('\n');
 
-type GeminiResponse = {
-    promptFeedback?: { blockReason?: string };
-    candidates?: { finishReason?: string; content?: { parts?: { text?: string; thought?: boolean }[] } }[];
-};
-
 function searchQuery(value: string) {
     const normalized = value.trim().replace(/\s+/g, ' ');
     return normalized && normalized.length <= 120 && !/https?:\/\/|[@<>]/i.test(normalized) ? normalized : null;
 }
 
 export function createGeminiMemeModel(apiKey: string, model = defaultGeminiModel) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
     async function generate(
         instructions: string, input: object, images: readonly MemeImage[], properties: Record<string, object>,
     ): Promise<Record<string, unknown> | null> {
@@ -59,22 +54,17 @@ export function createGeminiMemeModel(apiKey: string, model = defaultGeminiModel
                 { inlineData: { mimeType, data } },
             ]),
         ];
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-            signal: AbortSignal.timeout(20_000),
-            body: JSON.stringify({
-                systemInstruction: { parts: [{ text: instructions }] },
-                contents: [{ role: 'user', parts }],
-                generationConfig: {
-                    maxOutputTokens: 256,
-                    responseMimeType: 'application/json',
-                    responseJsonSchema: {
-                        type: 'object', additionalProperties: false, required: Object.keys(properties), properties,
-                    },
+        const response = await generateGeminiContent(apiKey, model, {
+            systemInstruction: { parts: [{ text: instructions }] },
+            contents: [{ role: 'user', parts }],
+            generationConfig: {
+                maxOutputTokens: 256,
+                responseMimeType: 'application/json',
+                responseJsonSchema: {
+                    type: 'object', additionalProperties: false, required: Object.keys(properties), properties,
                 },
-            }),
-        });
+            },
+        }, AbortSignal.timeout(20_000));
         if (!response.ok) {
             await response.body?.cancel().catch(() => undefined);
             throw new MemeProviderError('http_status', `Gemini HTTP ${response.status}`, { httpStatus: response.status });

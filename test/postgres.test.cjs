@@ -12,6 +12,7 @@ const { saveAccount, deleteAccount } = require('../dist/domains/account/accounts
 const { storeReply, replyLifetime, tokenCipher } = require('../dist/domains/replies/store');
 const { replyTasks, replyWorkerLogger } = require('../dist/domains/replies/worker');
 const { commandHandler } = require('../dist/domains/bot/commands');
+const { loadDailyTrivia } = require('../dist/domains/bot/daily-trivia');
 
 const connectionString = process.env.TEST_DATABASE_URL;
 if (!connectionString) {
@@ -50,6 +51,33 @@ if (!connectionString) {
         'SELECT key, run_at FROM graphile_worker.jobs WHERE key = $1', ['private-reply:' + replyId],
     )).rows[0];
     const state = async responseId => db.prisma.privateResponse.findUniqueOrThrow({ where: { responseId } });
+
+    test('daily trivia persists one fact across concurrent loads and rejects a repeated fact', async t => {
+        const first = new Date('2000-11-25');
+        const next = new Date('2000-11-26');
+        const signal = new AbortController().signal;
+        t.after(() => db.prisma.dailyTrivia.deleteMany({ where: { date: { in: [first, next] } } }));
+        const fact = '문어의 심장은 세 개다.';
+        let calls = 0;
+        const generate = async () => {
+            calls++;
+            return fact;
+        };
+        assert.deepEqual(await Promise.all([
+            loadDailyTrivia(db, first, generate, signal),
+            loadDailyTrivia(db, first, generate, signal),
+        ]), [fact, fact]);
+        assert.equal(calls, 1);
+        assert.equal(await loadDailyTrivia(db, first, generate, signal), fact);
+        assert.equal(calls, 1);
+        await assert.rejects(loadDailyTrivia(db, next, async (date, recent) => {
+            assert.equal(date, '2000-11-26');
+            assert.equal(recent[0], fact);
+            return '문어의 심장은 세 개다!';
+        }, signal), /repeated/);
+        const newFact = '금성은 자전 주기가 공전 주기보다 길다.';
+        assert.equal(await loadDailyTrivia(db, next, async () => newFact, signal), newFact);
+    });
 
     test('post-scoped totals, detail filtering, account updates, and settlement ownership', async () => {
         const scope = post();
